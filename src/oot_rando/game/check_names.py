@@ -265,6 +265,16 @@ def label_entries(maps, groups, extra):
     return marks
 
 
+LABEL_OVERRIDES = {
+    'DC_room10_chest_1': 'DC Staircase Chest',
+    'DC_room13_chest_2': 'DC Bomb Flower Platform Chest',
+    'DC_room16_chest_1': 'DC Upper Lizalfos Chest',
+    'DC_room1_chest_1': 'DC Main Room Left Side Small Chest',
+    'DC_room1_chest_3': 'DC End of Bridge Chest',
+}
+
+
 def entry_label(entry):
     """The readable name of a positioned check, or None (events, NPC gifts...)."""
-    return next((v['label'] for v in entry.get('variants', ()) if v.get('label')), None)
+    label = next((v['label'] for v in entry.get('variants', ()) if v.get('label')), None)
+    return LABEL_OVERRIDES.get(label, label)

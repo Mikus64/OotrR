@@ -6129,55 +6129,6 @@
    "Vanilla"
   ]
  },
- "Dodongos Cavern End of Bridge Chest": {
-  "type": "Chest",
-  "scene": 1,
-  "vanilla": "Deku Shield",
-  "categories": [
-   "Dodongo's Cavern",
-   "Vanilla"
-  ]
- },
- "Dodongos Cavern Deku Scrub Side Room Near Dodongos": {
-  "type": "Scrub",
-  "scene": 1,
-  "vanilla": "Buy Deku Stick (1)",
-  "categories": [
-   "Dodongo's Cavern",
-   "Vanilla",
-   "Deku Scrub"
-  ]
- },
- "Dodongos Cavern Deku Scrub Lobby": {
-  "type": "Scrub",
-  "scene": 1,
-  "vanilla": "Buy Deku Shield",
-  "categories": [
-   "Dodongo's Cavern",
-   "Vanilla",
-   "Deku Scrub"
-  ]
- },
- "Dodongos Cavern Deku Scrub Near Bomb Bag Left": {
-  "type": "Scrub",
-  "scene": 1,
-  "vanilla": "Buy Deku Nut (5)",
-  "categories": [
-   "Dodongo's Cavern",
-   "Vanilla",
-   "Deku Scrub"
-  ]
- },
- "Dodongos Cavern Deku Scrub Near Bomb Bag Right": {
-  "type": "Scrub",
-  "scene": 1,
-  "vanilla": "Buy Deku Seeds (30)",
-  "categories": [
-   "Dodongo's Cavern",
-   "Vanilla",
-   "Deku Scrub"
-  ]
- },
  "Dodongos Cavern GS Side Room Near Lower Lizalfos": {
   "type": "GS Token",
   "scene": 1,
@@ -7201,16 +7152,6 @@
    "Vanilla",
    "Master Quest",
    "Freestanding"
-  ]
- },
- "Dodongos Cavern Boss Room Chest": {
-  "type": "Chest",
-  "scene": 18,
-  "vanilla": "Bombs (5)",
-  "categories": [
-   "Dodongo's Cavern",
-   "Vanilla",
-   "Master Quest"
   ]
  },
  "Dodongos Cavern King Dodongo Heart": {
