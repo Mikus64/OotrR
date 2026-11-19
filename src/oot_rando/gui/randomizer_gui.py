@@ -14,7 +14,7 @@ from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VER
 from oot_rando.randomizer.randomizer_services import (read_artifact, generate_in_mods, qol_seed_warning,
                                                       regeneration_settings, validate_mod_directory)
 from oot_rando.randomizer.qol_install import install_qol
-from oot_rando.tracker.auto_tracker import TrackerSession, newest_save
+from oot_rando.tracker.auto_tracker import TrackerSession, find_save_slots, newest_save
 from oot_rando.tracker import game_overlay
 from oot_rando.tracker import live_memory
 from oot_rando.randomizer import spoiler_report
@@ -268,6 +268,7 @@ class Application:
         self.events, self.busy = queue.Queue(), False
         self.artifact, self.tracker, self.overlay, self.hud = None, None, None, None
         self.regen_settings = None   # settings of an installed seed made by an older generator
+        self.artifact_manifest = None   # manifest of self.artifact (set by use_artifact)
         self.hud_status = tk.StringVar(value='')
         self.zone_open, self.tracker_scroll, self.tracker_trees = {}, {}, {}
         self.current_checks = []
@@ -1458,6 +1459,7 @@ class Application:
 
     def generated_and_installed(self, result):
         directory, installed = result
+        previous = self.artifact_manifest   # seed replaced by this one (same folder if regenerated)
         self.use_artifact(directory)
         self.show_page('tracker')
         self.status.set('Seed generated and installed: ' + str(installed))
@@ -1465,10 +1467,59 @@ class Application:
         messagebox.showinfo('Seed ready', 'Seed installed in:\n' + str(installed)
                             + '\n\nStart a new game to enable automatic tracking and first collections.'
                             + ('\n\n' + warning if warning else ''))
+        self.offer_save_migration(self.artifact_manifest, previous)
+
+    def offer_save_migration(self, manifest, previous=None):
+        """Offer to give the saves of this seed the start values they never received.
+
+        A fix written by the new-game opening only reaches games started after it. Saves
+        of this seed (or of the one it regenerates) are listed; nothing is written unless
+        the player agrees, and each save is backed up first (tracker/save_patch.py)."""
+        from oot_rando.tracker import save_patch
+        try:
+            paths = find_save_slots(self.hookshot_root(), TITLE, self.mods.get() or None)
+            candidates = save_patch.migration_candidates(paths, manifest, previous)
+        except Exception as error:   # never block the installation on a save scan
+            self.status.set('Saves not checked: ' + str(error))
+            return
+        if not candidates:
+            return
+        names = sorted({name for _, changed in candidates for name in changed})
+        listing = '\n'.join('• ' + str(path) for path, _ in candidates[:6])
+        if len(candidates) > 6:
+            listing += f'\n• … and {len(candidates) - 6} more'
+        if not messagebox.askyesno(
+                'Update the saves of this seed',
+                f'{len(candidates)} save(s) of this seed were started before some fixes of this version and '
+                f'miss {len(names)} start value(s) (' + ', '.join(names[:4]) + (', …' if len(names) > 4 else '')
+                + ').\n\n' + listing + '\n\nUpdate them now? Close the game first. Each save is backed up '
+                'next to it (progress.sav' + save_patch.BACKUP_SUFFIX + '<date>) and only flags it already '
+                'holds are changed.'):
+            return
+        markers = save_patch.migration_markers(manifest, previous)
+        done, failed = [], []
+        for path, _ in candidates:
+            try:
+                done.append(save_patch.patch_save(path, manifest.get('start_values') or {}, markers))
+            except save_patch.GameRunning as error:
+                failed.append(str(error))
+                break
+            except Exception as error:
+                failed.append(f'{path}: {error}')
+        text = f'{len(done)} save(s) updated.'
+        backups = [report['backup'] for report in done if report['backup']]
+        if backups:
+            text += '\nBackups:\n' + '\n'.join(backups)
+        if failed:
+            text += '\n\nNot updated:\n' + '\n'.join(failed)
+            messagebox.showwarning('Saves of this seed', text)
+        else:
+            messagebox.showinfo('Saves of this seed', text)
+        self.status.set(text.splitlines()[0])
 
     def use_artifact(self, directory):
         manifest, _ = read_artifact(directory)
-        self.artifact = Path(directory)
+        self.artifact, self.artifact_manifest = Path(directory), manifest
         self.result.set('Seed: ' + manifest['settings']['seed'] + '\nIdentity: ' + manifest['seed_id'][:16]
                         + f' • {len(manifest["files"])} resources checked\n' + str(directory))
         complete = manifest.get('full_randomizer')

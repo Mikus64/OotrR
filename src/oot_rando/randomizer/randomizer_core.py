@@ -592,6 +592,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
             # just before the ending cutscene (read live by the client: no save follows).
             extra_raw[GOAL_FLOW], goal_markers = add_collection_markers(
                 extra_raw.get(GOAL_FLOW) or decompress(read(GOAL_FLOW), d), {GOAL_EVENT: goal_name})
+        start_values = {}   # GameData written at the end of the opening (manifest: save migration)
         if settings.full is not None:
             # Seed bag and quiver (level 1) from the start: the slingshot and the
             # bow can come from any source (a shop slot never grants the bag).
@@ -760,6 +761,9 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None):
                     'validation': 'Static checks done; this composed seed is still to be tested in game.'}
         if save_seed_id:
             manifest['save_seed_id'] = save_seed_id
+        if start_values:
+            # Values a game started before a fix never received (tracker/save_patch.py).
+            manifest['start_values'] = dict(sorted(start_values.items()))
         if full is not None:
             families = sorted({p['source'] for p in full['placements']})
             manifest['scope'] = ('Full glitchless randomizer: sources shuffled together ('
