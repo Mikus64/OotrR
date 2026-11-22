@@ -70,6 +70,7 @@ class LogicTests(unittest.TestCase):
         from oot_rando.game.remake_world import CHEST_RULE_EVENTS, rule_members
         self.assertEqual(sorted(set(CHEST_RULE_EVENTS.values())),
                          ['GC Hammer Rock Chest', 'GC Lower Ledge Chests', 'GC Maze Rocks', 'GC Silver Rock Chest',
+                          'HF Fairy Memory Chest',
                           'Kak Impas House Heart Piece', 'Kak Windmill Heart Piece', 'LLR Ruins Hookshot Chest'])
         self.logic.virtual = {'chest_6': rule_members({'id': 'GoronCity#3870071239709713434',
                                                        'ap': ['GC Maze Center Chest']}),
@@ -310,8 +311,10 @@ class LogicTests(unittest.TestCase):
         self.assertFalse(river(Day, {}, 'adult'))
         self.assertTrue(river(Day, {'Megaton Hammer': 1}, 'adult'))
         self.assertTrue(river(Day, {'Bomb Bag': 1}, 'child'))
+        # The Bombchu Shop is open from the start (story_fixes.bombchu_shop_open_from_start).
+        self.assertNotIn('Market Back Alley -> Market Bombchu Shop', self.data.remake['exit_rules'])
         shop = self.exit_rule('Market Back Alley', 'Market Bombchu Shop')
-        self.assertFalse(shop(Day, {}, 'child'))
+        self.assertTrue(shop(Day, {}, 'child'))
 
     def test_water_temple_gate_open_for_adult_without_the_serenade(self):
         # The lake gate opens for adult Link (story_fixes.water_gate_for_adult, 21/11):
