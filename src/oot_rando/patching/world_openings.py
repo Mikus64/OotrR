@@ -50,11 +50,13 @@ def step_enum(challenge):
     return 'Step_' + challenge
 
 
-def open_quest(read_flow, gamedata_raw, challenges_raw, quest, floor, flows, defaults=None):
+def open_quest(read_flow, gamedata_raw, challenges_raw, quest, floor, flows, defaults=None,
+               prefix=quest_guard.PREFIX):
     """Start ``quest`` at ``floor`` (plus ``defaults``) and guard ``flows`` against going back.
 
     ``read_flow(path)`` returns the current bytes of a flow (an earlier edit or the
     game's). Returns (gamedata bytes, {flow path: bytes}, report).
+    A custom ``prefix`` is recorded so verification can reconstruct the same guards.
     """
     steps = quest_guard.challenge_steps(challenges_raw)
     values = dict(defaults or {}, **{step_enum(quest): floor})
@@ -62,12 +64,15 @@ def open_quest(read_flow, gamedata_raw, challenges_raw, quest, floor, flows, def
     edited, guarded = {}, {}
     for path in flows:
         edited[path], report = quest_guard.guard_regressions(read_flow(path), quest, steps, floor,
-                                                             gamedata_raw=gamedata)
+                                                             gamedata_raw=gamedata, prefix=prefix)
         if not report['guarded']:
             raise ValueError(f'{quest} guard: no request to guard in {path}')
         guarded[path] = report['guarded']
     expression = quest_guard.floor_expression(steps, quest, floor)
-    return gamedata, edited, {'defaults': values, 'expression': expression, 'guarded': guarded}
+    report = {'defaults': values, 'expression': expression, 'guarded': guarded}
+    if prefix != quest_guard.PREFIX:
+        report['prefix'] = prefix
+    return gamedata, edited, report
 
 
 def zora_fountain_open(read_flow, gamedata_raw, challenges_raw):
@@ -260,16 +265,21 @@ CARPENTERS_HELPED = 'GerudoFortress_Meet_FourCarpenter_NumOfCarpenterHelped'
 CARPENTERS_LEFT = 'GerudoFortress_Meet_FourCarpenter_NumOfCarpenterHelped_02'
 
 
-def gerudo_fortress_fast(read_flow, gamedata_raw, challenges_raw):
+def gerudo_fortress_fast(read_flow, gamedata_raw, challenges_raw, read_module=None):
     """One carpenter to rescue (``gerudo_fortress`` = ``fast``).
 
     ``SageOfSpirit_RescueCarpenter`` adds one to ``…_NumOfCarpenterHelped`` at each
     rescue and plays ``Meet_FourCarpenter_ClearEvent`` (the Gerudo Membership Card,
     the fortress at peace) once it passes 3; ``…_Helped_02`` counts the carpenters
     left. A new game starts with three helped and one left, so the first rescue,
-    whichever cell, ends the fortress. No flow is changed."""
+    whichever cell, ends the fortress. Completion releases the other carpenters
+    and opens all cell locks so their jars remain reachable."""
+    from oot_rando.patching import gerudo_fortress as g
     values = {CARPENTERS_HELPED: 3, CARPENTERS_LEFT: 1}
-    return game_defaults.set_new_game_defaults(gamedata_raw, values), {}, {'defaults': values, 'guarded': {}}
+    flow, freed = g.free_remaining_carpenters(read_flow(g.SPIRIT_FLOW))
+    files = {g.SPIRIT_FLOW: flow, g.CELL_MODULE: g.open_completed_cells((read_module or read_flow)(g.CELL_MODULE))}
+    return game_defaults.set_new_game_defaults(gamedata_raw, values), files, {
+        'defaults': values, 'guarded': {}, 'freed': freed, 'modules': [g.CELL_MODULE]}
 
 
 BRIDGE_MODULE = 'Logic/GerudoValley_Adult_Prefab_9e43.logic.module.ainb'
@@ -307,6 +317,8 @@ def gerudo_valley_bridge(read_flow, gamedata_raw, challenges_raw, read_module):
 # seeds start there; later castle visits must not move the quest backwards.
 ESCAPE_QUEST = 'DoorOfTime'
 ESCAPE_FLOOR = 'Step03'
+# DoorOfTime also carries the Kakariko floor guards. Keep their names distinct.
+ESCAPE_PREFIX = 'RandoZeldaEscapeFloor_'
 ESCAPE_FLOWS = ('Event/EventFlow/Goto_HyruleCastle.bfevfl.zs',
                 'Event/EventFlow/DoorOfTime.bfevfl.zs',
                 'Event/EventFlow/Npc_Hylia_Zelda_Child.bfevfl.zs',
@@ -317,7 +329,8 @@ def zelda_escape_ready(read_flow, gamedata_raw, challenges_raw):
     """Make the native bridge escape available on a new game's first visit."""
     from oot_rando.patching.story_fixes import BRIDGE_CLOSED
     return open_quest(read_flow, gamedata_raw, challenges_raw, ESCAPE_QUEST, ESCAPE_FLOOR,
-                      ESCAPE_FLOWS, {BRIDGE_CLOSED: True, 'DoorOfTime_GetStoneCount': 0})
+                      ESCAPE_FLOWS, {BRIDGE_CLOSED: True, 'DoorOfTime_GetStoneCount': 0},
+                      prefix=ESCAPE_PREFIX)
 
 
 # option name, value -> opening (applied in this order by the seed build).
@@ -339,7 +352,7 @@ def apply_openings(options, read_flow, gamedata_raw, challenges_raw, read_module
             continue
         current = lambda p: files.get(p) or read_flow(p)
         extra = ((lambda p: files.get(p) or read_module(p),)
-                 if opening in (door_of_time_open, gerudo_valley_bridge) else ())
+                 if opening in (door_of_time_open, gerudo_valley_bridge, gerudo_fortress_fast) else ())
         gamedata, edited, reports[option] = opening(current, gamedata, challenges_raw, *extra)
         files.update(edited)
     from oot_rando.logic.rando_options import escape_requirement

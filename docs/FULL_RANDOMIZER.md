@@ -30,6 +30,22 @@ shuffled reward only once (`repeatable_adapter.py`), then go back to their vanil
 
 ## Starting inventory, item pool, removed keys
 
+* **Magic capacity comes only from Magic Meter upgrades**: Din's Fire, Farore's
+  Wind, Nayru's Love, elemental arrows and the Lens of Truth no longer grant the
+  first magic bar implicitly. Their shared expansion reference is detached in
+  native and generated actor packs, and their pouch database entries agree
+  (`patching/magic_capacity.py`). Both real magic upgrades retain their effects.
+  Regenerate seeds to apply this fix. **Not validated in game.**
+* **Bows and elemental arrows**: the normal bow menu actor uses `Bow`, correcting
+  its native `IceArrow` assignment. Ice Arrows remain a separate pool item when
+  their chest is shuffled. Standalone Fire, Ice and Light Arrows cannot be equipped;
+  their combined bow-and-arrow entries retain adult usability once a bow is held
+  (`patching/elemental_arrows.py`). **Not validated in game.**
+* **Bomb refills never grant a bomb bag**: bombs and bombchus have their native
+  `SmallBagActor` automatic grant cleared in every embedded pouch component,
+  including generated world, drop and shop packs (`patching/bomb_refills.py`).
+  This applies to chests, gifts, purchases, pickups and Archipelago reception.
+  Refill amounts and real bag upgrades are preserved. **Not validated in game.**
 * **Starting inventory** (`start_inventory_from_pool`, AP name): items held from the
   start, given silently at the end of the opening (`event_patch.add_pouch_items`). A
   copy found in the item pool is replaced by rupees; progressive copies take the
@@ -123,6 +139,28 @@ it. In `Minigame_CatchCucco`, `Event3` (her "left to find" count, N minus the pe
 `Event82` (some brought back) use N. Her request and reward lines (`Talk_19`, `Talk_21`,
 `Talk_21_1`, `Talk_40` of `Npc_Hylia_049_Child.msbt`) name N, as a digit, in every
 language. 0 (a reward without a cucco) is not supported. **Not validated in game.**
+
+## King Zora's gift after Morpha (`story_fixes.py`)
+
+Defeating Morpha before meeting frozen King Zora removes his red ice and releases
+his quest dialogue, which used to make the Zora Tunic gift unavailable. His normal
+and side-position talks now offer the original `SageOfWater/Event242` reward when
+the Water quest is complete and its saved gift receipt is still false. The native
+receipt prevents repeat gifts; owning a tunic from elsewhere does not suppress it.
+The completed quest stays complete. Registered in generation and `verify` through
+the story-fix list. **Not validated in game.**
+
+## Adult Link the Goron's rolling (`link_goron.py`)
+
+The playable Darunia Jr. now spawns on the first adult Goron City load, without
+waiting for `SageOfFire_GenerateDaruniaJr` from the introduction. His `Ready`
+schedule uses the native `StopDaruniaJr` rolling and bomb/talk behavior, so an
+unplayed introduction does not leave him immune to the normal stun sequence.
+The introductory camera sequence is bypassed and its two stationary doubles are
+hidden, leaving only the playable Goron. Its native spawn/played flags are still
+set when the arrival event runs. Requests for
+`StopDaruniaJr`, `TalkDaruniaJr` and `MoveStatue` cannot move a later Fire quest
+backward. Regenerate a seed to apply these changes. **Not validated in game.**
 
 ## Multi-level mini-games (`minigame_rewards.py`)
 
@@ -304,14 +342,12 @@ Mido's house: the 4 grouped chests are matched to Mido's 4 AP chests.
 
 ### Door of Time requirements (`door_of_time_requirement`)
 
-This single GUI row also controls the stones needed for Zelda's escape at the
-castle bridge: `all` asks for three stones, `vanilla` for Ruby and Sapphire, and
-`song` asks for no stones. In `song`, a new game starts with the escape ready
-(`DoorOfTime` Step03): it can be watched on the first bridge visit without meeting
-Zelda, owning an ocarina, or knowing the Song of Time. Opening the temple door still
-needs an ocarina and the song unless **Door of Time open** is enabled. Later castle
-visits cannot reset the escape's quest progress. This also works with the child
-Zelda skip. Existing saves need a new game to receive the initial quest state.
+Zelda's escape has its own **Require Spiritual Stones** setting in the same card.
+Changing the door requirements does not change the escape requirements. New seeds
+require all three stones for the escape by default; **Vanilla** requires Ruby and
+Sapphire. Seeds previously saved with `spiritual_stones: door` retain their linked
+behavior, including the immediate escape when their door requirement is `song`.
+The legacy linked value is accepted on import but is not offered for new choices.
 
 Play the Song of Time with an ocarina in front of the door. The *Open world* card
 adds a separate choice of stones required at that moment:
@@ -355,12 +391,12 @@ can run regardless of the current quest step.
 
 The game's own check (`DoorOfTime/DoorOfTime_CheckStoneNum`) reads only the Fire and
 Water stone quests (`Get_StoneOfFire`, `Get_StoneOfWater`), never the Kokiri Emerald.
-The setting is hidden in the GUI and retained for compatibility. New settings use
-`door`, following the visible Door of Time requirements row, including its no-stone
-choice. Explicit older `all`/`vanilla` settings and old seeds without this field
-retain their previous rules when loaded directly. Editing or exporting through the
-GUI uses the single visible row. The legacy setting picks what gates the Ocarina of Time (`HF Ocarina of Time Item`) and the Song of Time. The door's
-own stone requirement is set separately:
+The **Require Spiritual Stones** row in *Open world* controls the escape independently
+of the Door of Time. New settings default to `all`; choose `vanilla` to require only
+Ruby and Sapphire. This gates the Ocarina of Time (`HF Ocarina of Time Item`) and
+the Song of Time. The old `door` value is still readable for existing linked seeds,
+but is not offered in the dropdown. Loading and exporting preserves that value
+until an explicit escape choice is made.
 
 | Value | Stones | Logic and patch |
 |---|---|---|

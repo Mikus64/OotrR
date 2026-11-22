@@ -96,7 +96,7 @@ class EscapeStoneUnits(unittest.TestCase):
     def test_stored_options_without_the_option_ask_for_every_stone(self):
         # Seeds made before the option (upstream's) asked for the three stones.
         self.assertEqual(s.escape_stones({}), s.STONE_SETS['all'])
-        self.assertEqual(s.escape_stones(rando_options.recorded(rando_options.defaults())), ())
+        self.assertEqual(s.escape_stones(rando_options.recorded(rando_options.defaults())), s.STONE_SETS['all'])
 
     def test_the_story_fixes_carry_the_chosen_stones(self):
         for value, stones in s.STONE_SETS.items():
@@ -771,6 +771,34 @@ class GameFlows(unittest.TestCase):
         self.assertEqual(unflagged_links(nodes), [])
         with self.assertRaises(ValueError):
             s.bombchu_shop_open_from_start(raw)
+
+    def test_bombchu_shop_vendor_music_and_closed_sign_before_dodongo(self):
+        import copy
+        for path, targets in s.BOMBCHU_SHOP_ACTORS.items():
+            source = self.read(path)
+            original = Byml(source).root
+            edits, report = s.bombchu_shop_actor_edits(original, path)
+            patched = Byml(patch_strings(source, edits)).root
+            expected = copy.deepcopy(original)
+            self.assertEqual(len(report['actors']), len(targets))
+            for index, (ident, gyaml, negated) in zip(report['actors'], targets):
+                actor = patched['Actors'][index]
+                self.assertEqual((actor['Hash'], actor['Gyaml']), (ident, gyaml))
+                expected['Actors'][index]['Presence']['FlagName'] = s.CHILDHOOD
+                # Child Link, before and after Dodongo, sees the vendor/music
+                # but never the closed sign. Adult map and day/night door stay separate.
+                for completed in (False, True):
+                    values = {s.BOMBCHU_SHOP_QUEST: completed, s.CHILDHOOD: True}
+                    presence = actor['Presence']
+                    visible = values[presence['FlagName']] != presence['IsNegation']
+                    self.assertEqual(visible, not negated, (path, gyaml, completed))
+            self.assertEqual(patched, expected)  # stock, links, all other actors unchanged
+            with self.assertRaises(ValueError):
+                s.bombchu_shop_actor_edits(patched, path)
+            missing = copy.deepcopy(original)
+            missing['Actors'].pop(report['actors'][0])
+            with self.assertRaises(ValueError):
+                s.bombchu_shop_actor_edits(missing, path)
 
     def test_serenade_never_moves_the_water_quest_back(self):
         source = self.read(s.SAGE_OF_WATER_FLOW)
