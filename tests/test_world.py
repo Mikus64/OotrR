@@ -17,11 +17,11 @@ class WorldTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = World()
 
-    def test_the_fingerprint_is_that_of_release_0_7_5(self):
+    def test_the_fingerprint_matches_the_membership_logic(self):
         # Installed seeds keep it (tracker accessibility) and Archipelago patches compare it.
-        # v0.7.5 updates adult access rules and removes the Bombchu Shop dungeon gate.
+        # Gerudo Membership Card now grants access independently of the rescues.
         # Change this value on purpose only, when the logic files change.
-        self.assertEqual(self.world.fingerprint(), '82d80053ccc79ff04e5536dcb8dbc5f4900ff7fa4473f5c67ae0f2a6297a50e8')
+        self.assertEqual(self.world.fingerprint(), 'd6143a55ae9755a959d5918ab5c91e5d7f28b1629e6abe4ff4c7e965a4a66ff1')
 
     def test_tables_and_regions(self):
         self.assertEqual(len(self.world.location_table), 1707)

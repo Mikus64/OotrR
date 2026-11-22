@@ -337,6 +337,18 @@ def scan_map_sources(maps, instance_param=None, world_respawn=None):
                     entries[gid]['reason'] = 'special_drop_behavior'
                 elif not instance_param(name, 'Drop__DropActor'):
                     entries[gid]['reason'] = 'instance_parameter_not_proven'
+    # The central adult Kakariko tree is replaced when the village burns.
+    # One reward across both bancs prevents losing a check to that irreversible
+    # transition. The repeatable adapter keys its shared collection flag by gid.
+    normal = 'KakarikoVillage#trees#16206101463308204390'
+    burnt = 'KakarikoVillage#trees#17337529934879425827'
+    if normal in entries and burnt in entries:
+        original, replacement = entries[normal], entries[burnt]
+        if replacement['reason'] is not None:
+            original['reason'] = replacement['reason']
+        if original['before'] != replacement['before']:
+            original['reason'] = 'variant_mismatch'
+        original['variants'].extend(entries.pop(burnt)['variants'])
     for entry in entries.values():
         if entry['reason'] is None and len({v['resource'] for v in entry['variants']}) != len(entry['variants']) \
                 and entry['source'] != 'shop':

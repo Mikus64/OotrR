@@ -118,13 +118,11 @@ OPTIONS = [
             ('song', 'Ocarina + Song of Time', OK)), 'song',
            'Play the Song of Time with an ocarina at the door. Three stones also requires the Kokiri '
            'Emerald, Goron Ruby and Zora Sapphire; Ruby and Sapphire only requires the latter two. '
-           'The same stone choice controls Zelda\'s escape at the castle bridge. No stones makes the escape '
-           'available immediately, without meeting Zelda first. Door of Time open overrides only the door. '
+           'Door of Time open overrides this requirement. Independent of the stones for Zelda\'s escape. '
            'To be confirmed in game.', experimental=('all', 'vanilla', 'song')),
     Option('spiritual_stones', 'World', 'Require Spiritual Stones',
-           (('door', 'Follow Door of Time requirements', OK),
-            ('all', 'Require all (legacy)', OK), ('vanilla', 'Vanilla (legacy)', OK)), 'door',
-           'Compatibility setting for older seeds. New seeds follow Door of Time requirements. '
+           (('door', 'Follow Door of Time requirements (legacy seed)', OK),
+            ('all', 'Require all', OK), ('vanilla', 'Vanilla', OK)), 'all',
            'Which stones Zelda\'s escape asks for to give the Ocarina of Time and the Song of Time. '
            'Require all: the Kokiri Emerald, the Goron Ruby and the Zora Sapphire. Vanilla: the Goron Ruby '
            'and the Zora Sapphire only, as in the original game. Door of Time requirements are separate.'),
@@ -140,7 +138,8 @@ OPTIONS = [
             ('open', 'Open', 'The Gerudo Membership Card is handed over by the rescue of the last '
              'carpenter: with every carpenter free from the start its check would be lost.')), 'normal',
            'One carpenter: the first carpenter freed, in any cell, ends the fortress and brings the '
-           'Gerudo Membership Card. To be confirmed in game.', experimental=('fast',)),
+           'rescue reward, then frees the remaining carpenters and opens every cell. '
+           'To be confirmed in game.', experimental=('fast',)),
     Option('open_gerudo_valley_bridge', 'World', 'Gerudo Valley bridge repaired',
            ((False, OK), (True, OK)), False,
            'The adult crosses the repaired Gerudo Valley bridge on foot from the start. '
@@ -226,8 +225,8 @@ OPTIONS = [
            'at the pedestal. To be validated in game.', kind='bool', experimental=(True,)),
     Option('shuffle_gerudo_card', 'Items', 'Gerudo Membership Card', ((False, OK), (True, OK)), False,
            'Shuffle the Gerudo Membership Card and the reward for rescuing the carpenters. '
-           'Rescuing the carpenters still completes their quest. No game flow reads the card itself, so '
-           'the logic expects both the card and the carpenters freed for the gate, the training ground '
+           'Rescuing the carpenters still completes their quest. The card grants membership, '
+           'including before the rescues, for the gate, the training ground '
            'and horseback archery. To be validated in game.',
            kind='bool', experimental=(True,)),
     Option('shuffle_beans', 'Items', 'Magic beans', ((False, OK), (True, NO_EVENT)), False, kind='bool'),
@@ -370,7 +369,7 @@ def stored_value(values, name):
 
 
 def escape_requirement(values):
-    """Shared stone choice; explicit older escape settings retain their original rules."""
+    """Independent escape choice; linked older seeds retain their original rules."""
     value = stored_value(values, 'spiritual_stones')
     return stored_value(values, 'door_of_time_requirement') if value == 'door' else value
 

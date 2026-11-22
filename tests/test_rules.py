@@ -189,7 +189,7 @@ class LogicTests(unittest.TestCase):
 
     def test_the_default_asks_for_every_stone(self):
         self.assertEqual(Logic(self.data).settings['spiritual_stones'], 'all')
-        self.assertEqual(rando_options.defaults()['spiritual_stones'], 'door')
+        self.assertEqual(rando_options.defaults()['spiritual_stones'], 'all')
 
     def test_escape_waits_for_zelda_and_the_stones(self):
         # Zelda's escape and the Door of Time (DoorOfTime) follow Zelda and the stones held

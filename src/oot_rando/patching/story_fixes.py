@@ -31,7 +31,9 @@ edit of one resource, checked by re-reading it (Discord reports of 15/11):
   it is open from the start, as the logic expects.
 * **Bombchu Shop.** Same lock on the shop door (``Market_Child_Prefab_0c76`` read
   ``Get_StoneOfFire_IsCompleted_Exp``, :func:`bombchu_shop_open_from_start`): it now
-  only asks for the night, from the start.
+  only asks for the night, from the start. The vendor, music and closed sign have
+  separate map Presence checks; :func:`bombchu_shop_actor_edits` removes their
+  dungeon dependency too, keeping the vendor/music and hiding the closed sign.
 * **Great Fairies.** Zelda's Lullaby on a fountain's Triforce mark
   (``TriForcePoint/Sub_PlayOcarinaSequence_FairyFountain``) only calls the fairy of
   Din's Fire (Death Mountain Trail) at once; the five others stay away while
@@ -1364,6 +1366,15 @@ SAGE_OF_WATER_STEPS = ('Ready', 'Step00', 'Step01', 'Step03', 'Step04', 'Step05'
 SERENADE_STEPS = ('Step04', 'Step05')
 BOMBCHU_SHOP_MODULE = 'Logic/Market_Child_Prefab_0c76.logic.module.ainb'
 BOMBCHU_SHOP_QUEST = 'Get_StoneOfFire_IsCompleted_Exp'
+BOMBCHU_SHOP_ACTORS = {
+    'Banc/Market/Market_Child_Dynamic.bcett.byml.zs': (
+        (7765672504758317189, 'Land_HrlCity_ShopSign_A_01', True),),
+    'Banc/Market/Market_Child_Static.bcett.byml.zs': (
+        (13279196239484838949, 'Npc_Hylia_021_Shop_Child', False),
+        (14705828610563193869, 'BGM_Shop_Market_Bombchu', False)),
+}
+
+
 DOOR_MODULE = 'Logic/Market_Common_f252.logic.module.ainb'
 DOOR_OPENED = 'Market_Child_TimeTempleDoor_Opened'
 # The altar's ReplaceEventParam rejects the ocarina BEFORE DoorOfTime_OpenDoor
@@ -1559,6 +1570,29 @@ def door_opens_on_saved_flag(raw):
     return _module_edit(raw, check, edit), {'module': DOOR_MODULE, 'flag': DOOR_OPENED}
 
 
+def bombchu_shop_actor_edits(root, path):
+    """Keep the child shop's vendor/music present and its closed sign hidden.
+
+    Only replace these actors' dungeon gate with childhood; preserve the native
+    negations, vendor links, stock, and the door's separate nighttime condition.
+    Returns (patch_strings edits, manifest report).
+    """
+    edits, indices = [], []
+    for ident, gyaml, negation in BOMBCHU_SHOP_ACTORS[path]:
+        found = [i for i, actor in enumerate(root.get('Actors', [])) if actor.get('Hash') == ident]
+        if len(found) != 1:
+            raise ValueError('Bombchu Shop actor not found: ' + gyaml)
+        index = found[0]
+        actor = root['Actors'][index]
+        if (actor.get('Gyaml') != gyaml or actor.get('Presence') != {
+                'FlagName': BOMBCHU_SHOP_QUEST, 'IsCheckLazy': False, 'IsNegation': negation}):
+            raise ValueError('Unexpected Bombchu Shop actor presence: ' + gyaml)
+        edits.append({'path': ('Actors', index, 'Presence', 'FlagName'),
+                      'before': BOMBCHU_SHOP_QUEST, 'after': CHILDHOOD})
+        indices.append(index)
+    return edits, {'actors': indices, 'presence': CHILDHOOD}
+
+
 def bombchu_shop_open_from_start(raw):
     """``Market_Child_Prefab_0c76``: the Bombchu Shop door no longer asks for the Fire Stone quest.
 
@@ -1657,7 +1691,9 @@ def scene_module_fixes():
     from oot_rando.patching.world_openings import PEDESTAL_MODULE as CHILD_PEDESTAL, pedestal_before_sages
     from oot_rando.patching.world_openings import (KAKARIKO_CLOSED_MODULE, KAKARIKO_OPEN_MODULE,
                                                   kakariko_gate_on_letter)
-    return ((WATER_GATE_MODULE, 'water_gate', water_gate_for_adult),
+    from oot_rando.patching import link_goron
+    return ((link_goron.MODULE, 'link_goron_spawn', link_goron.spawn_from_first_entry),
+            (WATER_GATE_MODULE, 'water_gate', water_gate_for_adult),
             (KAKARIKO_CLOSED_MODULE, 'kakariko_gate_closed',
              lambda raw: kakariko_gate_on_letter(raw, False)),
             (KAKARIKO_OPEN_MODULE, 'kakariko_gate_open',
@@ -1669,10 +1705,75 @@ def scene_module_fixes():
             (BRIDGE_MODULE, 'bridge_medallions', bridge_on_medallions))
 
 
+# After Morpha the red ice disappears and the challenge's NPC schedule releases
+# King Zora to his ordinary Talk/IrregularTalk. Neither contains his tunic gift.
+# Keep the original reward site (SageOfWater/Event242), so item replacement and
+# AP/progressive hooks still run, and use its saved receipt instead of ownership.
+KING_ZORA_FLOW = 'Event/EventFlow/Npc_Zora_KingZora_adult.bfevfl.zs'
+KING_ZORA_GIFT_FLAG = 'SageOfWater_KingZora_adult_Talk_Event198'
+KING_ZORA_GIFT_ENTRY = 'RandoKingZoraGift'
+
+
+def king_zora_gift_entry(raw):
+    """Expose the native gift sequence for a post-Morpha unclaimed reward."""
+    from evfl.entry_point import EntryPoint
+    from evfl.util import make_index
+    from oot_rando.patching.progressive import FlowEditor, link
+    editor = FlowEditor(raw, 'SageOfWater')
+    events = {e.name: e for e in editor.chart.events}
+    gift = events['Event242']
+    if (type(gift.data).__name__ != 'SubFlowEvent'
+            or gift.data.params.data.get('ActorName') != 'Obj_Armor_Zora'
+            or events['Event69'].data.params.data.get('GameDataName') != KING_ZORA_GIFT_FLAG
+            or any(e.name == KING_ZORA_GIFT_ENTRY for e in editor.chart.entry_points)):
+        raise ValueError('Unexpected King Zora gift sequence or fix already applied.')
+    init = editor.subflow('RandoKingZoraGiftInit', 'Get_StoneOfWater', 'Test_InitTalk_KingZora',
+                         {'Arg_Turn': 4, 'Arg_Greeting': 4})
+    link(init, gift)
+    entry = EntryPoint(KING_ZORA_GIFT_ENTRY)
+    entry.main_event = make_index(init)
+    # Event242 returns through Event265; its true branch ends after Step05,
+    # so this post-completion route never requests an earlier challenge step.
+    entry._sub_flow_event_indices = [editor.chart.events.index(init), editor.chart.events.index(gift)]
+    editor.chart.entry_points.append(entry)
+    result, _ = editor.write('King Zora gift entry')
+    return result, {'entry': KING_ZORA_GIFT_ENTRY, 'reward': 'Event242', 'flag': KING_ZORA_GIFT_FLAG}
+
+
+def king_zora_gift_after_morpha(raw):
+    """Normal and side-position talk offer the missed gift once after Morpha."""
+    from evfl.util import make_index
+    from oot_rando.patching.progressive import FlowEditor
+    editor = FlowEditor(raw, 'Npc_Zora_KingZora_adult')
+    entries = {e.name: e for e in editor.chart.entry_points}
+    for name, root in (('Talk', 'Event38'), ('IrregularTalk', 'Event113')):
+        entry = entries[name]
+        if entry.main_event.v.name != root:
+            raise ValueError('Unexpected King Zora talk entry: ' + name)
+        usual = entry.main_event.v
+        give = editor.subflow('RandoKingZoraGift' + name, 'SageOfWater', KING_ZORA_GIFT_ENTRY, None)
+        received = editor.switch('RandoKingZoraGiftReceived' + name, 'GameDataActor',
+                                 'EventQueryIsGameDataBool',
+                                 {'GameDataName': KING_ZORA_GIFT_FLAG, 'Index': -1}, usual, give)
+        completed = editor.switch('RandoKingZoraGiftCompleted' + name, 'GameDataActor',
+                                  'EventQueryIsGameDataBoolExp',
+                                  {'GameDataName': 'SageOfWater_IsCompleted_Exp'}, received, usual)
+        entry.main_event = make_index(completed)
+        entry._sub_flow_event_indices = list(entry._sub_flow_event_indices) + [editor.chart.events.index(give)]
+    result, _ = editor.write('King Zora gift after Morpha')
+    return result, {'entries': ['Talk', 'IrregularTalk'], 'flag': KING_ZORA_GIFT_FLAG}
+
+
 def flow_fixes(stones):
     """``(flow, report key, fix)`` of every story fix; the escape checks ask for ``stones``."""
     from oot_rando.patching.minigame_rewards import FIXES as MINIGAME_FIXES
+    from oot_rando.patching import gerudo_fortress as gerudo
+    from oot_rando.patching import link_goron
     return (
+        (link_goron.FLOW, 'link_goron_forward', link_goron.keep_quest_forward),
+        (gerudo.SPIRIT_FLOW, 'gerudo_prison_card',
+         partial(gerudo.membership_flow, names=('Event123', 'Event99', 'Event389'))),
+        (gerudo.GUARD_FLOW, 'gerudo_guard_card', partial(gerudo.membership_flow, names=('Event20',))),
         *OWL_FLOW_FIXES,
         *MINIGAME_FIXES,
         ('Event/EventFlow/AllSage.bfevfl.zs', 'prelude_quest_forward', prelude_keeps_later_sage_progress),
@@ -1692,6 +1793,8 @@ def flow_fixes(stones):
         (SARIA_SONG_FLOW, 'saria_song_forward', door_of_time_forward),
         (LINK_GORON_FLOW, 'link_goron_tunic', link_goron_gives_tunic),
         (SAGE_OF_WATER_FLOW, 'serenade_forward', serenade_keeps_water_temple),
+        (SAGE_OF_WATER_FLOW, 'king_zora_gift_entry', king_zora_gift_entry),
+        (KING_ZORA_FLOW, 'king_zora_gift', king_zora_gift_after_morpha),
         (DOOR_FLOW, 'door_song_before_escape', door_song_before_escape),
         (ALL_SAGE_FLOW, 'revelation_forward', revelation_keeps_ganon_quest),
     )

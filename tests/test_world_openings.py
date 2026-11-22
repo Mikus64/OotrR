@@ -99,7 +99,7 @@ class ZoraFountain(unittest.TestCase):
                  for path, _, fix in story_fixes.flow_fixes(())}
         read = lambda path: fixed.get(path) or self.read(path)
         raw = lambda path: self.nup.read(self.nup.latest('romfs/' + path))
-        data, files, reports = w.apply_openings(rando_options.defaults(), read, source, challenges, raw)
+        data, files, reports = w.apply_openings(dict(rando_options.defaults(), spiritual_stones='door'), read, source, challenges, raw)
         expected = {'Step_DoorOfTime': 'Step03', 'IsHyruleFieldBridgeClose': True,
                     'DoorOfTime_GetStoneCount': 0}
         self.assertEqual(game_defaults.read_defaults(data, expected), expected)
@@ -120,8 +120,8 @@ class ZoraFountain(unittest.TestCase):
         self.assertIn('Step03', strings.values())
         create = next(p for p in nodes[0]['Parameters']['Inputs']['Bool'] if p['Name'] == 'Logic_Create')
         self.assertEqual((create['Node Index'], create['Output Index']), (3, 2))
-        # Both stone-requiring choices leave the bridge's initial quest state alone.
-        for mode in ('all', 'vanilla'):
+        # All door choices leave the independent default escape state alone.
+        for mode in ('all', 'vanilla', 'song'):
             options = rando_options.validate({'door_of_time_requirement': mode})
             unchanged, no_files, no_reports = w.apply_openings(options, read, source, challenges, raw)
             self.assertEqual(unchanged, source)
@@ -137,6 +137,33 @@ class ZoraFountain(unittest.TestCase):
         self.assertIn('Step03', guarded)            # first arrival in Zora's Domain
         self.assertTrue({'Step05', 'Step06'} <= guarded)
         self.assertFalse(guarded & {'Step07', 'Step08', 'Step09', 'Step10', 'Step14'})
+
+    def test_open_kakariko_with_no_stones_keeps_both_quest_guards(self):
+        from oot_rando.logic import rando_options
+        from oot_rando.patching.story_fixes import _Chart, _params
+        options = dict(rando_options.defaults(), open_kakariko='open', spiritual_stones='door')
+        data, files, reports = w.apply_openings(
+            options, self.read, self.read(game_defaults.GAMEDATA), self.read(quest_guard.CHALLENGES))
+        defaults = {w.step_enum(w.KAKARIKO_QUEST): w.KAKARIKO_FLOOR, w.KAKARIKO_GATE: True,
+                    w.step_enum(w.ESCAPE_QUEST): w.ESCAPE_FLOOR}
+        self.assertEqual(game_defaults.read_defaults(data, defaults), defaults)
+        chart = _Chart(files[w.DOOR_FLOW]).chart
+        self.assertEqual(len({e.name for e in chart.events}), len(chart.events))
+        for option in ('open_kakariko', 'zelda_escape'):
+            report = reports[option]
+            self.assertTrue(report['guarded'][w.DOOR_FLOW])
+            for event, _, resume in report['guarded'][w.DOOR_FLOW]:
+                guards = [e for e in chart.events
+                          if getattr(e.data, 'actor_query', None) is not None
+                          and _params(e).get('GameDataName') == report['expression']
+                          and 1 in e.data.cases and e.data.cases[1].v.name == event]
+                self.assertEqual(len(guards), 1)
+                self.assertEqual(guards[0].data.cases[0].v.name if 0 in guards[0].data.cases else None,
+                                 resume)
+        # Distinct quest patches can coexist; applying the same patch twice still fails.
+        with self.assertRaisesRegex(ValueError, 'Quest guard already applied'):
+            w.zelda_escape_ready(lambda p: files.get(p) or self.read(p), data,
+                                 self.read(quest_guard.CHALLENGES))
 
     def test_no_other_flow_requests_the_quests(self):
         # The guarded flows are the only ones that move each opened quest back.

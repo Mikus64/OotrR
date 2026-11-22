@@ -34,7 +34,7 @@ from oot_rando.game.resource_allocations import allocation, grow_resources, add_
 from oot_rando.formats.byml_writer import lift_actors, patch_strings
 from oot_rando.logic import rando_options
 
-GENERATOR_VERSION = '0.12.2'  # v0.7.5: updated reward sources, progression and initial states
+GENERATOR_VERSION = '0.12.3'  # shared AP dispatcher; bounded global sequence size
 ADAPTER_VERSION = 'ap-glitchless-v5'   # v5: progressive tokens (every copy gives the next level)
 ADULT_MAP = MAP.replace('_Child_', '_Adult_')
 # The amiibo menu: given by Kaepora's first field arrival, now never played
@@ -479,7 +479,15 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             # Story locks broken by items found in any order (patching/story_fixes.py).
             from oot_rando.patching import story_fixes
             story = {}
+            from oot_rando.patching import gerudo_fortress
+            story['gerudo_membership'] = {}
+            for path, fix in gerudo_fortress.resource_fixes():
+                extra_raw[path], story['gerudo_membership'][path] = fix(
+                    extra_raw.get(path) or (decompress(read(path), d) if path.endswith('.zs') else read(path)))
             stones = story_fixes.escape_stones(settings.full)
+            from oot_rando.patching import link_goron
+            extra_raw[link_goron.SCHEDULES], story['link_goron_rolling'] = link_goron.stunnable_before_intro(
+                extra_raw.get(link_goron.SCHEDULES) or decompress(read(link_goron.SCHEDULES), d))
             for path, key, fix in story_fixes.flow_fixes(stones):
                 extra_raw[path], story[key] = fix(extra_raw.get(path) or decompress(read(path), d))
             # Kaepora's first field arrival never plays (its effects are set at the start):
@@ -547,6 +555,13 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             raw_maps[story_fixes.LAKE_TREE_MAP] = patch_strings(lake, tree_edits)
             story['lake_tree_wall'] = {'map': story_fixes.LAKE_TREE_MAP, 'actor': tree_actor,
                                        'presence': story_fixes.LAKE_TREE_WALL_PRESENCE_ENTRY['FlagName']}
+            # The open Bombchu door also needs its vendor/music and no closed sign.
+            story['bombchu_shop_actors'] = {}
+            for path in story_fixes.BOMBCHU_SHOP_ACTORS:
+                market = raw_maps.get(path) or decompress(read(path), d)
+                edits, details = story_fixes.bombchu_shop_actor_edits(Byml(market).root, path)
+                raw_maps[path] = patch_strings(market, edits)
+                story['bombchu_shop_actors'][path] = details
             # Adult Link can put the Master Sword back before the Forest Temple (raw file).
             extra_raw[story_fixes.PEDESTAL_MODULE], story['pedestal'] = story_fixes.pedestal_after_first_adult_arrival(
                 extra_raw.get(story_fixes.PEDESTAL_MODULE) or read(story_fixes.PEDESTAL_MODULE))
@@ -564,6 +579,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             # Scenes no longer required: the Water Temple gate (Serenade), the Door of Time
             # (Zelda's escape) and the rainbow bridge (Zelda's revelation).
             extra_raw[GAMEDATA], story['scene_conditions'] = story_fixes.scene_expressions(extra_raw[GAMEDATA])
+            extra_raw[GAMEDATA], story['gerudo_card_conditions'] = gerudo_fortress.membership_expressions(extra_raw[GAMEDATA])
             # The altar rejects the song before the opening flow can run unless
             # its native invalid-condition is updated too.
             extra_raw[GAMEDATA], story['door_song_condition'] = story_fixes.door_song_condition(
@@ -715,6 +731,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
                           if 'Event/EventFlow/' + n + '.bfevfl.zs' not in extra_raw]
             flows, skips['cutscene_windows'] = cutscene_window_files(original_flow, flow_names, candidates)
             extra_raw.update(flows)
+        report('Analyzing event flow dependencies…')
         skips.update(complete_event_info(extra_raw, nup, members, d, read))
         # In place on the vanilla table (same size); chest rows are added after. The
         # area presentation rows always pause like the fountains (their skip windows).
@@ -731,18 +748,20 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             from oot_rando.patching import ap_mailbox
             from oot_rando.patching.event_info import GAME_ANALYZED_EVENT_INFO, flow_path as mailbox_flow_path
             current_raw = lambda path: extra_raw[path] if path in extra_raw else decompress(read(path), d)
-            extra_raw[ap_mailbox.FLOW_PATH] = ap_mailbox.add_entries(current_raw(ap_mailbox.FLOW_PATH), mailbox_items)
+            extra_raw[ap_mailbox.FLOW_PATH] = ap_mailbox.add_entries(current_raw(ap_mailbox.FLOW_PATH), mailbox_items,
+                                                                    dispatch=True)
             mailbox_flows = lambda name: (extra_raw[ap_mailbox.FLOW_PATH] if name == ap_mailbox.FLOW
                                           else current_raw(mailbox_flow_path(name))
                                           if mailbox_flow_path(name) in members else None)
-            extra_raw[EVENT_SETTINGS] = ap_mailbox.add_event_rows(current_raw(EVENT_SETTINGS), mailbox_items)
+            extra_raw[EVENT_SETTINGS] = ap_mailbox.add_event_rows(current_raw(EVENT_SETTINGS), mailbox_items, dispatch=True)
             extra_raw[GAME_ANALYZED_EVENT_INFO], mailbox_row = ap_mailbox.add_analyzed_rows(
-                current_raw(GAME_ANALYZED_EVENT_INFO), mailbox_items, mailbox_flows)
+                current_raw(GAME_ANALYZED_EVENT_INFO), mailbox_items, mailbox_flows, dispatch=True)
             plain_raw[ap_mailbox.MAIN_UPDATE] = ap_mailbox.patch_main_update(read(ap_mailbox.MAIN_UPDATE),
-                                                                             mailbox_items)
+                                                                             mailbox_items, dispatch=True)
             extra_raw[GAMEDATA] = add_saved_flags(extra_raw[GAMEDATA], {
-                flag: False for record in mailbox_items for flag in (record['recv'], record['got'])})
-            skips['ap_mailbox'] = {'items': mailbox_items, 'row': mailbox_row}
+                ap_mailbox.SIGNAL: False,
+                **{flag: False for record in mailbox_items for flag in (record['recv'], record['got'])}})
+            skips['ap_mailbox'] = {'items': mailbox_items, 'row': mailbox_row, 'signal': ap_mailbox.SIGNAL}
         if full is not None:
             # Chests save no flag of their own: each chest, shuffled or left in place, runs
             # its own copy of its opening event, which sets a saved Bool first (tracking,
@@ -772,6 +791,22 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             # Meeting Zelda before the Deku Tree must not send Mido away from his wall.
             from oot_rando.patching.qol_patches import MIDO_SCHEDULE, keep_mido_at_post
             plain_raw[MIDO_SCHEDULE], skips['mido_post'] = keep_mido_at_post(read(MIDO_SCHEDULE))
+        # Apply last: derived world/shop/drop actors can embed the same pouch data.
+        from oot_rando.patching import bomb_refills
+        skips['bomb_refills'] = bomb_refills.apply(
+            extra_raw, new_files, lambda path: decompress(read(path), d))
+        from oot_rando.patching import elemental_arrows
+        for path, fix in elemental_arrows.resource_fixes():
+            target = extra_raw if path.endswith('.zs') else plain_raw
+            raw = target.get(path)
+            if raw is None:
+                raw = decompress(read(path), d) if path.endswith('.zs') else read(path)
+            target[path] = fix(raw)
+        skips['elemental_arrows'] = True
+        from oot_rando.patching import magic_capacity
+        skips['magic_capacity'] = magic_capacity.apply(
+            extra_raw, new_files, lambda path: decompress(read(path), d))
+        report('Compressing and checking generated resources…')
         growths = {}
         for path, raw in sorted(raw_maps.items()):
             source = read(path)
@@ -1205,7 +1240,7 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         def repeat_read_raw(path):
             return modified[path] if path in modified else decompress(read(path), dictionaries_)
 
-        new.update(build_repeatable_packs(repeatables, read_pack, repeat_read_raw, tables))
+        new.update(build_repeatable_packs(repeatables, read_pack, repeat_read_raw, tables, progress=report))
         for name, path in RSDB_FILES.items():
             modified[path] = byml_codec.dump(documents[name])
     if repeatables:

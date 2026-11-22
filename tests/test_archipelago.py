@@ -200,6 +200,30 @@ class WithGame(unittest.TestCase):
         self.assertTrue(any(world.reachable(g, Counter()) for g in logic))
         self.assertIs(world.reach(Counter()), world.reach(Counter()))   # cached
 
+    def test_external_tracker_rules_cover_default_excluded_chests(self):
+        world = bridge.PlayerWorld(self.catalog, {'open_forest': True}, 'issue-83')
+        full = Counter(world.pool)
+        dream = [gid for gid in world.names if gid.startswith('DreamWorld#')]
+        self.assertEqual(len(dream), 10)
+        for gid in dream:
+            entry = world.c.shuffled[gid]
+            self.assertTrue(all('/BossRushIntervalRoom_' in v['resource']
+                                and v['dynamic']['IsEnableRepeatOpen'] for v in entry['variants']))
+        for gid, inside in world.in_logic.items():
+            with self.subTest(gid=gid):
+                if not inside:
+                    self.assertIn(gid, world.tracker_members)
+                    if world.c.shuffled[gid]['folder'] in ('ShadowTemple', 'SpiritTemple', 'DreamWorld'):
+                        self.assertFalse(world.reachable(gid, Counter()))
+                # Full accessibility can still reach every default check.
+                self.assertTrue(world.reachable(gid, full))
+        for counts in (Counter(), full):
+            state, native, _ = world.c.sweep({}, counts)
+            self.assertEqual(world.reach(counts)[1], state.has('Triforce'))
+            for gid, inside in world.in_logic.items():
+                if inside:
+                    self.assertEqual(world.reachable(gid, counts), world.vnames[gid] in native)
+
     def test_local_only_items(self):
         world = self.player()
         from oot_rando.game.remake_world import PROGRESSIVE
