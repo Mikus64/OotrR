@@ -17,11 +17,11 @@ class WorldTests(unittest.TestCase):
     def setUpClass(cls):
         cls.world = World()
 
-    def test_the_fingerprint_is_that_of_upstream_0_7_3(self):
-        # Installed seeds keep it (tracker accessibility) and Archipelago patches compare it: it hashes the
-        # logic files, so the options that vary the rules (spiritual_stones) do it in Python, not in them.
+    def test_the_fingerprint_matches_the_membership_logic(self):
+        # Installed seeds keep it (tracker accessibility) and Archipelago patches compare it.
+        # Gerudo Membership Card now grants access independently of the rescues.
         # Change this value on purpose only, when the logic files change.
-        self.assertEqual(self.world.fingerprint(), '57d7d0b7a9deeed25be9c273b7a03ba4bcc4fdca47361050a6f6242901604c2c')
+        self.assertEqual(self.world.fingerprint(), 'd6143a55ae9755a959d5918ab5c91e5d7f28b1629e6abe4ff4c7e965a4a66ff1')
 
     def test_tables_and_regions(self):
         self.assertEqual(len(self.world.location_table), 1707)

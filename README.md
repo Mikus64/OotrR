@@ -116,7 +116,7 @@ Code: [qol_patches.py](src/oot_rando/patching/qol_patches.py).
 | **Ocarina found before the Deku Tree** (full randomizer) | `ActionGuide/ActionGuide` first runs `OpenActionGuideSceenForOcarina` when the Fairy Ocarina is in the pouch (guide shown once) | to test |
 | **Owl advice removed** (full randomizer) | tutorial flags are set at the opening; the first field conversation keeps its quest work; Death Mountain and Lake Hylia keep a single ride choice. The Dream World introduction unlocks the service silently | statically verified; to test in game |
 | **Skip child Hyrule Castle** (full randomizer, `skip_child_zelda`) | the opening replays the native quest requests the castle makes (`Goto_HyruleCastle` complete, `DoorOfTime` at Impa's send-off, `Get_StoneOfFire` at Kakariko) and sets Talon's wake-up flags; Zelda's Letter and Lullaby are shuffled elsewhere (the lullaby anywhere a song can be given); the castle's shuffled checks hold green rupees (Great Fairy apart); castle requests of earlier steps are skipped once the quest is complete ([child_castle_skip.py](src/oot_rando/patching/child_castle_skip.py)) | statically verified; to test in game |
-| **Turbo A** | holding X during a dialogue taps A (keyboard key bound to A in `hookshot_options.ini`) | always on |
+| **Turbo A** | holding A during a dialogue repeats A (keyboard key bound to A in `hookshot_options.ini`) | optional; remembered between app starts |
 
 Other NPC conversations are not skippable (an earlier attempt crashed the game); turbo
 A speeds up their text instead. The owl patch bypasses specific advice triggers and keeps
@@ -158,6 +158,26 @@ opening. Progressive items (hookshot, bow, bomb bag, wallet…) can be in any wo
 every copy, found in your world or received, gives the level above the one Link holds,
 in any order. Limits: chest checks reach the server once the game writes its save;
 dungeon-bound keys (other than key rings and dungeon boss keys) stay in your world.
+
+Generator 0.12.3 uses one shared Archipelago mailbox watcher, keeping the global
+sequence small even when hundreds of items come from other worlds (issue #86).
+Regenerate the mod from its `.aprmk` to apply this change and use the updated
+application/client for delivery. The updated client still supports older mods.
+
+Desktop seed generation runs in a separate process so the window can keep
+responding during CPU-heavy work. The log reports actor-building progress and
+event analysis/compression stages. See [performance measurements](docs/PERFORMANCE.md).
+
+External AP trackers use conservative area-wide requirements for filler-only
+checks without a reliable location match. These checks remain excluded from
+progression placement; they become reachable only when every supported check in
+their area is reachable, with source age and known chest guards preserved.
+The Dream World boss-rush interval chests use a deliberately late estimate:
+every supported world check must be reachable. AP does not track the museum's
+native enemy records or the boss-rush round, so this cannot show their exact
+unlock time. Other areas without a logic mapping stay unavailable. Rebuild the
+host's `.apworld` with the updated application to use these rules; existing
+generated multiworlds keep their original logic.
 
 ## Development
 

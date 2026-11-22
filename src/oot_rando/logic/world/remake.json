@@ -1,6 +1,14 @@
 {
  "description": "Remake layer: where the Nintendo Switch remake differs from the base OoT world. Each rule replaces the base rule of the location; each move puts a location in another region. Found in game or by the audit (python -m oot_rando audit).",
  "location_rules": {
+  "Graveyard GS Wall": {
+   "rule": "is_adult and can_use(Hookshot) and at_night",
+   "why": "The remake's wall Skulltula reward needs adult Link and the Hookshot (in-game report, 21/11). Its actor also exists on the child map, which does not prove the drop is collectable with the Boomerang."
+  },
+  "HF Deku Scrub Grotto": {
+   "rule": "is_adult and can_stun_deku",
+   "why": "The remake's single-sale scrub in the grotto near Hyrule Castle is only reachable as adult Link (in-game report, 21/11). Keep the stun requirement."
+  },
   "Links Pocket": {
    "rule": "Time_Travel",
    "why": "The base world hands the Link's Pocket reward out at the start; the remake gives it through Rauru only after the first Master Sword pull (11/10: an Ocarina placed there was counted in sphere 0)."
@@ -115,10 +123,6 @@
    "rule": "can_blast_or_smash",
    "why": "The remake does not let adult Link hop past the boulder at the river mouth: it must be blown up or smashed. The seed now removes the river mouth air walls for both ages (story_fixes.zora_river_wall_edits, zora_river_child_wall_edits); this rule stays until Link is seen passing over the fence in game, then AP's 'is_adult or has_explosives' can come back."
   },
-  "Market Back Alley -> Market Bombchu Shop": {
-   "rule": "at_night and 'Dodongos Cavern Clear'",
-   "why": "The Bombchu Shop only opens once King Dodongo is beaten (prudence until checked in game)."
-  },
   "Ganons Castle Grounds -> Ganons Castle Lobby": {
    "rule": "(can_build_rainbow_bridge or (bridge == 'vanilla' and Shadow_Medallion and Spirit_Medallion)) and at_dampe_time",
    "why": "The rainbow bridge scene follows the Shadow and Spirit Medallions held (story_fixes.bridge_on_medallions, 21/11): Zelda's revelation (Light Arrows) is no longer needed first."
@@ -129,6 +133,12 @@
   }
  },
  "events": {
+  "Hyrule Field": {
+   "HF Fairy Memory Chest": {
+    "rule": "is_child and at('Hyrule Field', is_adult)",
+    "why": "Obj_TBox_A_01_memo11 (2967378296224661060, HF_chest_1): HrlField_Note_11 exists only as adult. Reading it sets HaveReadHrlField_Note11; the native HrlField_Note_11_Treaurebox only opens as child after that memory. Conservatively require the prior adult visit even when chest tracking replaces the native opening dialogue."
+   }
+  },
   "HC Garden Locations": {
    "Met Zelda": {
     "rule": "is_child",
