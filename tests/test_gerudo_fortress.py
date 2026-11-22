@@ -121,4 +121,3 @@ class Fortress(unittest.TestCase):
         self.assertTrue(g.expressions_applied(patched))
         with self.assertRaises(ValueError):
             g.membership_expressions(patched)
-
