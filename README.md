@@ -56,9 +56,10 @@ or to the Temple of Time as an adult. Cancel or B leaves the game where it was.
 The game file must hold the base game **and** update v131072 in one `.nup`; the
 order of the packages inside it does not matter.
 
-For a **PC port on Windows** (Hookshot, its successor Longshot, or any fork with the
-same layout), keep the NUP as the source and choose the `mods` folder next to the
-game exe, `image.bin` and `romfs` (create it if needed). The
+For a **PC port** (Hookshot, its successor Longshot — on Windows, or Longshot's native
+Linux build — or any fork with the same layout), keep the NUP as the source and choose
+the `mods` folder next to `image.bin` and `romfs` (create it if needed). Longshot's Linux
+build keeps its saves in `~/.local/share/longshot/save`; the tracker finds them. The
 seed is installed in its own sub-folder, without replacing the original resources.
 
 ## Tracking
@@ -83,15 +84,16 @@ coming from an old copy of the same drop.
 
 Live reading of the game memory finds Hookshot and the yuzu-family emulators
 Lichii, Ryuchii, Eden, yuzu, suyu, citron and sudachi on Windows, and the native
-Linux builds of these emulators (Ryuchii on a Steam Deck, for instance) on Linux.
+Linux builds of Longshot and of these emulators (Ryuchii on a Steam Deck, for instance)
+on Linux.
 On Linux, run the Linux application (`OoT-Randomizer`): the Windows `.exe` started
 through Proton or Wine cannot read a native Linux process. Another fork can be added
 by its executable name in **Setup → Other emulator executables** (on Linux, with or
 without `.exe`).
 
 On Linux, the yuzu-family emulators keep the game's memory in a file
-(`/memfd:HostMemory`). The application reads it through `/proc/<pid>/fd` at the
-offsets `/proc/<pid>/maps` gives. That only needs the same user as the emulator, so
+(`/memfd:HostMemory`, Longshot: `/memfd:longshot-guest`). The application reads it through `/proc/<pid>/fd` at the
+offsets `/proc/<pid>/maps` gives. That only needs the same user as the game, so
 it also works with `kernel.yama.ptrace_scope` at 1 (SteamOS, Ubuntu). For an
 emulator without that file it reads `/proc/<pid>/mem`, which `ptrace_scope` 1 allows
 only when the emulator allows it (`prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY)`) or the
@@ -149,7 +151,7 @@ world, with the same locations, item pool and glitchless rules as the built-in f
 
 Items of other players show in game as an Archipelago medallion with the item and player
 name. Items of this game found in other worlds are handed over in game by the client
-while a save of the seed is loaded (Hookshot or a yuzu-family emulator on Windows, a native
+while a save of the seed is loaded (Hookshot, Longshot or a yuzu-family emulator on Windows, Longshot's Linux build or a native
 yuzu-family emulator on Linux), one at
 a time in server order: Link holds the item up (consumables arrive as a pickup). An item
 the game does not take after several tries is set aside and reported in the client log,
