@@ -32,30 +32,30 @@ class PartiesPage:
         parent = self.scrollable(self.parties_tab)
         actions = ttk.Frame(parent, style='Page.TFrame')
         actions.pack(fill='x', pady=(0, 14))
-        ttk.Button(actions, text='+ Nouvelle partie', style='Accent.TButton',
+        ttk.Button(actions, text='+ New party', style='Accent.TButton',
                    command=self.new_party).pack(side='left')
-        ttk.Button(actions, text='Importer une seed…', command=self.import_party).pack(side='left', padx=8)
-        ttk.Button(actions, text='Conserver la partie installée…',
+        ttk.Button(actions, text='Import a seed…', command=self.import_party).pack(side='left', padx=8)
+        ttk.Button(actions, text='Keep the installed party…',
                    command=self.capture_party).pack(side='left')
         search = ttk.Frame(parent, style='Page.TFrame')
         search.pack(fill='x', pady=(0, 14))
-        ttk.Label(search, text='Rechercher par nom', style='Page.TLabel').pack(side='left', padx=(0, 12))
+        ttk.Label(search, text='Search by name', style='Page.TLabel').pack(side='left', padx=(0, 12))
         ttk.Entry(search, textvariable=self.party_search).pack(side='left', fill='x', expand=True)
         self.parties_rows = ttk.Frame(parent, style='Page.TFrame')
         self.parties_rows.pack(fill='both', expand=True)
         self.party_search.trace_add('write', lambda *args: self.render_parties())
         self.render_parties()
-        box = self.card(self.settings_body, 'Nom de la partie',
-                        'La seed et la progression seront conservées ensemble dans Mes parties.')
+        box = self.card(self.settings_body, 'Party name',
+                        'The seed and its progress are kept together in My Games.')
         ttk.Entry(box, textvariable=self.party_name).pack(fill='x')
 
     def parties_ready(self):
         if self.busy:
-            self.status.set('Une opération est déjà en cours.')
+            self.status.set('An operation is already running.')
             return False
         if self.party_library is None:
-            raise ValueError('Bibliothèque indisponible : ' + self.party_library_error
-                             + '\nFermez le jeu puis redémarrez le randomizer pour reprendre la récupération.')
+            raise ValueError('Library unavailable: ' + self.party_library_error
+                             + '\nClose the game, then restart the randomizer to resume the recovery.')
         return True
 
     def render_parties(self):
@@ -71,9 +71,9 @@ class PartiesPage:
             shown = [p for p in parties if query in p['name'].casefold()]
             if not shown:
                 self.card(self.parties_rows,
-                          'Aucune partie trouvée' if parties else 'Votre prochaine aventure commence ici',
-                          'Créez une partie, importez une seed ou conservez celle déjà installée.'
-                          if not parties else 'Essayez un autre nom.')
+                          'No party found' if parties else 'Your next adventure starts here',
+                          'Create a party, import a seed or keep the one already installed.'
+                          if not parties else 'Try another name.')
             for party in shown:
                 ident = party['id']
                 active = ident == self.party_library.active_id
@@ -82,31 +82,31 @@ class PartiesPage:
                 mode = 'Archipelago' if manifest['settings'].get('archipelago') else 'Solo'
                 saves = Path(party['saves']) if active else bundle / 'save'
                 started = any(saves.glob('slot_*/progress.sav'))
-                status = 'ACTIVE' if active else 'En cours' if started else 'Pas encore commencée'
+                status = 'ACTIVE' if active else 'In progress' if started else 'Not started yet'
                 box = self.card(self.parties_rows)
                 heading = self.buttons(box)
                 ttk.Label(heading, text=party['name'], style='Heading.TLabel',
                           wraplength=360).pack(side='left', fill='x', expand=True)
                 ttk.Label(heading, text=status, style='Chip.TLabel').pack(side='right')
                 mods = Path(party['mods'])
-                destination = f'Recomp ({mods.parent.name})' if mods.name.lower() == 'mods' else 'Émulateur'
+                destination = f'Recomp ({mods.parent.name})' if mods.name.lower() == 'mods' else 'Emulator'
                 ttk.Label(box, text=f'{mode} · {destination} · '
                           f'Seed {manifest["settings"].get("seed", "")}',
                           style='Muted.TLabel', wraplength=600).pack(anchor='w', pady=(6, 2))
-                copied = datetime.fromisoformat(party['updated']).astimezone().strftime('%d/%m/%Y à %H:%M')
-                ttk.Label(box, text='Dernière copie : ' + copied,
+                copied = datetime.fromisoformat(party['updated']).astimezone().strftime('%Y-%m-%d %H:%M')
+                ttk.Label(box, text='Last copy: ' + copied,
                           style='Small.TLabel').pack(anchor='w')
                 row = self.buttons(box, pady=(12, 0))
-                ttk.Button(row, text='Continuer' if active else 'Activer', style='Accent.TButton',
+                ttk.Button(row, text='Continue' if active else 'Activate', style='Accent.TButton',
                            command=lambda key=ident: self.activate_party(key)).pack(side='left')
-                ttk.Button(row, text='Renommer', command=lambda key=ident: self.rename_party(key)).pack(side='left', padx=8)
-                ttk.Button(row, text='Dossier', command=lambda key=ident: self.party_folder(key)).pack(side='left')
-                delete = ttk.Button(row, text='Supprimer', command=lambda key=ident: self.delete_party(key))
+                ttk.Button(row, text='Rename', command=lambda key=ident: self.rename_party(key)).pack(side='left', padx=8)
+                ttk.Button(row, text='Folder', command=lambda key=ident: self.party_folder(key)).pack(side='left')
+                delete = ttk.Button(row, text='Delete', command=lambda key=ident: self.delete_party(key))
                 delete.pack(side='right')
                 if active:
                     delete.state(['disabled'])
         except Exception as error:
-            self.card(self.parties_rows, 'Bibliothèque indisponible', str(error))
+            self.card(self.parties_rows, 'Library unavailable', str(error))
 
     def new_party(self):
         if self.busy:
@@ -126,12 +126,12 @@ class PartiesPage:
             return Path(active['saves'])
         initial = Path(self.save_path.get()).parent.parent if self.save_path.get() else None
         chosen = filedialog.askdirectory(parent=self.root,
-                    title='Dossier du compte de sauvegarde : celui qui contient directement slot_00, slot_01…',
+                    title='Save account folder: the one directly containing slot_00, slot_01…',
                     initialdir=str(initial) if initial and initial.is_dir() else str(mods.parent))
         return validate_save_root(chosen) if chosen else None
 
     def party_display_name(self, initial=''):
-        name = simpledialog.askstring('Nom de la partie', 'Comment souhaitez-vous appeler cette partie ?',
+        name = simpledialog.askstring('Party name', 'What would you like to call this party?',
                                      initialvalue=initial, parent=self.root)
         return name.strip() if name and name.strip() else None
 
@@ -140,11 +140,11 @@ class PartiesPage:
             if not self.parties_ready():
                 return
             if self.party_library.active_id:
-                raise ValueError('Une partie est déjà gérée. Elle sera sauvegardée automatiquement à la prochaine bascule.')
+                raise ValueError('A party is already managed. It is saved automatically at the next switch.')
             mods = validate_mod_directory(self.mods.get())
             installed = [p for p in mods.iterdir() if is_randomizer_seed(p)] if mods.exists() else []
             if len(installed) != 1:
-                raise ValueError('Il faut exactement une seed du randomizer dans le dossier de mods sélectionné dans Setup.')
+                raise ValueError('There must be exactly one randomizer seed in the mods folder selected in Setup.')
             name = self.party_display_name(installed[0].name)
             if not name:
                 return
@@ -161,9 +161,9 @@ class PartiesPage:
 
     def ensure_party_destination(self, mods):
         if not self.party_library.active_id and mods.exists() and any(is_randomizer_seed(p) for p in mods.iterdir()):
-            messagebox.showinfo('Conserver votre partie',
-                'Conservez d’abord la partie installée avec son nom et sa sauvegarde. '
-                'Vous pourrez ensuite créer ou importer une autre partie.', parent=self.root)
+            messagebox.showinfo('Keep your party',
+                'First keep the installed party, with its name and its save. '
+                'You can then create or import another party.', parent=self.root)
             self.show_page('parties')
             return False
         return True
@@ -175,7 +175,7 @@ class PartiesPage:
             mods = validate_mod_directory(self.mods.get())
             if not self.ensure_party_destination(mods):
                 return
-            seed = filedialog.askdirectory(title='Seed à importer : dossier contenant manifest.json', parent=self.root)
+            seed = filedialog.askdirectory(title='Seed to import: folder containing manifest.json', parent=self.root)
             if not seed:
                 return
             manifest, _ = read_artifact(seed)
@@ -187,12 +187,12 @@ class PartiesPage:
                 return
             address = self.ap_address.get()
             def job(progress):
-                progress('Copie de la seed dans Mes parties…')
+                progress('Copying the seed into My Games…')
                 return self.party_library.create(name, seed, mods, saves, ap_address=address)
             def done(party):
                 self.render_parties()
                 self.show_page('parties')
-                self.status.set('Partie importée. Cliquez sur Activer pour jouer.')
+                self.status.set('Party imported. Click Activate to play.')
             self.run_job(job, done)
         except Exception as error:
             self.error(error)
@@ -218,7 +218,7 @@ class PartiesPage:
             address = self.ap_address.get() if self.party_context else None
             self.pause_party_services()
             def job(progress):
-                progress('Sauvegarde de la partie sortante et installation de la partie choisie…')
+                progress('Saving the outgoing party and installing the chosen one…')
                 return self.party_library.activate(ident, address)
             self.run_job(job, self.party_opened)
         except Exception as error:
@@ -236,7 +236,7 @@ class PartiesPage:
         self.start_turbo()
         self.render_parties()
         self.update_home()
-        self.status.set('Partie active : ' + party['name'] + '. Vous pouvez lancer le jeu.')
+        self.status.set('Active party: ' + party['name'] + '. You can start the game.')
 
     def match_party(self, directory):
         self.party_context = None
@@ -277,8 +277,8 @@ class PartiesPage:
             if not self.parties_ready():
                 return
             party = self.party_library.get(ident)
-            if messagebox.askyesno('Supprimer la partie', f'Retirer « {party["name"]} » de Mes parties ?\n\n'
-                                  'Une copie restera dans Parties/.deleted.', parent=self.root):
+            if messagebox.askyesno('Delete party', f'Remove “{party["name"]}” from My Games?\n\n'
+                                  'A copy will remain in Parties/.deleted.', parent=self.root):
                 self.party_library.delete(ident)
                 self.render_parties()
         except Exception as error:
@@ -293,7 +293,7 @@ class PartiesPage:
     def generate_party(self, nup, mods, settings, continuing=None):
         if not self.parties_ready() or not self.ensure_party_destination(mods):
             return
-        initial = continuing['name'] + ' (mise à jour)' if continuing else settings.seed
+        initial = continuing['name'] + ' (updated)' if continuing else settings.seed
         name = self.party_display_name(initial) if continuing else (
             self.party_name.get().strip() or self.party_display_name(initial))
         if not name:
@@ -333,6 +333,6 @@ class PartiesPage:
     def party_generated(self, party, continued=False):
         self.party_opened(party)
         self.show_page('parties')
-        text = ('La sauvegarde a été reprise. La partie d’origine reste disponible.' if continued
-                else 'Démarrez une nouvelle sauvegarde dans le jeu.')
-        messagebox.showinfo('Partie prête', f'« {party["name"]} » est installée.\n\n' + text, parent=self.root)
+        text = ('The save was carried over. The original party stays available.' if continued
+                else 'Start a new save in the game.')
+        messagebox.showinfo('Party ready', f'“{party["name"]}” is installed.\n\n' + text, parent=self.root)

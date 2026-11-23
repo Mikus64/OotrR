@@ -29,19 +29,19 @@ the quality-of-life options below. Details of the full mode and in-game pilots:
    Choose a preset and the options in **New seed**. JSON and YAML import/export are available.
 3. With the game and emulator closed, name the party and click **Generate and install** in **New seed**.
    The seed is written to `OoT_Randomizer_<identity>` inside the title's mods folder.
-   The previous managed seed and its saves are stored in **Mes parties** before switching;
+   The previous managed seed and its saves are stored in **My Games** before switching;
    other mods are preserved. Preserve an existing unmanaged installation first with
-   **Conserver la partie installée…**. Conflicting mods stop activation.
+   **Keep the installed party…**. Conflicting mods stop activation.
 4. Start a **new game**: tracking and first collections need the markers added by
    the seed. Save after the intro.
 5. **Tracker** follows the active party's save account automatically; changes show up
    when the game saves. It never switches to another account merely because its save is newer.
 
-## Mes parties
+## My Games
 
 Each named party keeps its complete seed, the account's save slots and ancillary files,
-and independent manual tracker checks. **Nouvelle partie** opens seed generation;
-**Importer une seed…** adds an existing generated folder. Multiworld patches selected in
+and independent manual tracker checks. **New party** opens seed generation;
+**Import a seed…** adds an existing generated folder. Multiworld patches selected in
 **Multiworld** also create named parties. A new party starts with empty saves; importing
 a seed does not import the currently installed progress.
 
@@ -51,7 +51,7 @@ the whole NAND. For a recomp, select its actual account under its save directory
 may use AppData or `~/.local/share/longshot/save`). An empty dedicated account directory is
 also accepted. That path is retained with the party; changing Setup does not retarget old parties.
 
-Click **Activer** with the game and emulator closed. The outgoing installation is copied
+Click **Activate** with the game and emulator closed. The outgoing installation is copied
 and verified, then the incoming seed and saves are installed together. When switching
 destinations, the outgoing files are removed only after archiving. Copy/rename failures
 roll back; an interrupted installation is recovered on the next application start, also
@@ -61,7 +61,7 @@ the connection is stopped and its password cleared before switching.
 `Parties/` sits beside the executable (at the project root when running sources). Keep
 this folder when moving or updating the randomizer. Each party has a stable internal ID,
 so renaming it does not lose its saves or tracker. The current and previous snapshots
-are retained. **Supprimer** removes an inactive party from the list, retaining its directory
+are retained. **Delete** removes an inactive party from the list, retaining its directory
 in `Parties/.deleted/`; the active party cannot be deleted. Regeneration creates a separately
 named updated party with a copy of the progress and keeps the original available. As before,
 changed randomizer versions may require a new game or the offered save migration.
