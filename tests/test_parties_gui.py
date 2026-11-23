@@ -25,7 +25,7 @@ class PartiesGuiTests(unittest.TestCase):
         self.addCleanup(self.root.destroy)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.base = Path(self.temporary.name)
+        self.base = Path(self.temporary.name).resolve()
         self.patches = []
         def mock(target, **kwargs):
             manager = patch(target, **kwargs)

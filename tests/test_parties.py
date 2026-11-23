@@ -35,7 +35,7 @@ class PartyTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.base = Path(self.temporary.name)
+        self.base = Path(self.temporary.name).resolve()
         self.processes = patch.object(parties, 'running_game', return_value=None)
         self.processes.start()
         self.addCleanup(self.processes.stop)
