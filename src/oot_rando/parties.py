@@ -97,7 +97,7 @@ def _operation(function):
                         import fcntl
                         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 except OSError as error:
-                    raise ValueError('Another randomizer is updating Mes parties. Wait for it to finish.') from error
+                    raise ValueError('Another randomizer is updating My Games. Wait for it to finish.') from error
                 self._lock_depth = 1
                 try:
                     if function.__name__ != 'recover' and self.journal.exists():
@@ -283,7 +283,7 @@ class PartyLibrary:
         seed = mods / party['mod_name']
         manifest, _ = read_artifact(seed)
         if manifest['seed_id'] != party['seed_id']:
-            raise ValueError('The installed seed changed outside Mes parties. Restore it before switching.')
+            raise ValueError('The installed seed changed outside My Games. Restore it before switching.')
         if ap_address is not None:
             party['ap_address'] = ap_address
         return self._snapshot(party, seed, saves)

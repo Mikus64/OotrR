@@ -357,8 +357,8 @@ class Application(PartiesPage):
         self.pages = {}
         self.seed_name, self.tracker_counts, self.tracker_filter = '', None, 'all'
         self.home_tab = self.tab('home', 'Home', 'Welcome', 'Your adventure at a glance.')
-        self.parties_tab = self.tab('parties', 'Mes parties', 'Mes parties',
-                                   'Retrouvez chaque aventure avec sa seed et sa sauvegarde.')
+        self.parties_tab = self.tab('parties', 'My Games', 'My Games',
+                                   'Find each adventure with its seed and its save.')
         self.settings_tab = self.tab('newseed', 'New seed', 'New seed', 'Pick an adventure, then generate it.')
         self.tracker_tab = self.tab('tracker', 'Tracker', 'Tracker', 'What you found, and what you can reach now.')
         self.multiworld_tab = self.tab('multiworld', 'Multiworld', 'Multiworld', 'Play with friends through Archipelago. Three steps.')
