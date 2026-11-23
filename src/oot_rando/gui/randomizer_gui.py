@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VERSION
-from oot_rando.randomizer.randomizer_services import (read_artifact, qol_seed_warning,
+from oot_rando.randomizer.randomizer_services import (read_artifact,
                                                       regeneration_settings, validate_mod_directory)
 from oot_rando.randomizer.qol_install import install_qol
 from oot_rando.tracker.auto_tracker import TrackerSession, find_save_slots, newest_save
@@ -26,7 +26,7 @@ from oot_rando.game.world_maps import SAFE_CATEGORIES
 from oot_rando.logic import rando_options
 from oot_rando.paths import data_dir, seeds_dir, state_dir
 from oot_rando.gui import theme
-from oot_rando.gui.generation_worker import generate_isolated
+from oot_rando.gui.parties_page import PartiesPage
 from oot_rando import __version__ as APP_VERSION, updater
 
 STATE = state_dir()
@@ -270,7 +270,7 @@ def default_mods_dir():
     folder = Path(appdata) / 'eden' / 'load' / TITLE if appdata else None
     return str(folder) if folder and folder.is_dir() else ''
 
-class Application:
+class Application(PartiesPage):
     def __init__(self, root):
         self.root = root
         root.title('OoT Randomizer')
@@ -301,6 +301,7 @@ class Application:
         self.tracker_search, self.save_path = tk.StringVar(), tk.StringVar()
         self.auto_save = tk.BooleanVar(value=True)
         self.app_state = self.read_app_state()
+        self.init_parties()
         self.turbo_enabled = tk.BooleanVar(value=self.app_state.get('turbo_a', True) is not False)
         # Remembered between app starts (it was off again at every start: 15/11 report, issue #39).
         self.options['skulltulas_always_present'].set(self.app_state.get('skulltulas_always_present') is True)
@@ -352,6 +353,8 @@ class Application:
         self.pages = {}
         self.seed_name, self.tracker_counts, self.tracker_filter = '', None, 'all'
         self.home_tab = self.tab('home', 'Home', 'Welcome', 'Your adventure at a glance.')
+        self.parties_tab = self.tab('parties', 'Mes parties', 'Mes parties',
+                                   'Retrouvez chaque aventure avec sa seed et sa sauvegarde.')
         self.settings_tab = self.tab('newseed', 'New seed', 'New seed', 'Pick an adventure, then generate it.')
         self.tracker_tab = self.tab('tracker', 'Tracker', 'Tracker', 'What you found, and what you can reach now.')
         self.multiworld_tab = self.tab('multiworld', 'Multiworld', 'Multiworld', 'Play with friends through Archipelago. Three steps.')
@@ -363,6 +366,7 @@ class Application:
         self.home_body, self.settings_body = self.scrollable(self.home_tab), self.scrollable(self.settings_tab)
         self.multiworld_body, self.setup_body = self.scrollable(self.multiworld_tab), self.scrollable(self.setup_tab)
         self.build_home()
+        self.build_parties()
         self.build_setup()
         self.build_categories()
         self.build_tracker()
@@ -568,7 +572,7 @@ class Application:
         hero = ttk.Frame(parent, style='Hero.TFrame', padding=(28, 24, 28, 24))
         hero.pack(fill='x', pady=(0, 6))
         ttk.Label(hero, text='CURRENT ADVENTURE', style='HeroField.TLabel').pack(anchor='w')
-        ttk.Label(hero, textvariable=self.home_seed, style='HeroTitle.TLabel').pack(anchor='w', pady=(4, 14))
+        ttk.Label(hero, textvariable=self.home_seed, style='HeroTitle.TLabel', wraplength=650).pack(anchor='w', pady=(4, 14))
         self.home_bar = ttk.Progressbar(hero, style='Hero.Horizontal.TProgressbar', maximum=1, value=0)
         self.home_bar.pack(fill='x')
         row = ttk.Frame(hero, style='HeroIn.TFrame')
@@ -626,7 +630,7 @@ class Application:
         if not hasattr(self, 'home_tiles'):
             return
         counts = self.tracker_counts if self.tracker else None
-        self.home_seed.set(self.seed_name or 'No adventure yet')
+        self.home_seed.set(self.party_context['name'] if self.party_context else self.seed_name or 'No adventure yet')
         if counts:
             self.home_bar.configure(maximum=max(counts['total'], 1), value=counts['done'])
             self.home_progress.set(f'{counts["done"]} / {counts["total"]} found')
@@ -1010,6 +1014,8 @@ class Application:
         self.update_archipelago_controls()
 
     def toggle_archipelago(self):
+        if self.busy:
+            return
         from oot_rando.archipelago.client import ArchipelagoClient, ClientError
         if self.ap_client:
             self.stop_archipelago()
@@ -1025,6 +1031,8 @@ class Application:
             self.ap_status.set(str(error))
             return
         self.write_app_state(ap_address=self.ap_address.get().strip())
+        if self.party_context:
+            self.party_library.set_address(self.party_context['id'], self.ap_address.get())
         self.ap_client, self.ap_log_seen = client, 0
         self.ap_log.configure(state='normal')
         self.ap_log.delete('1.0', 'end')
@@ -1089,6 +1097,8 @@ class Application:
             pass
 
     def restore_last_artifact(self):
+        if self.restore_party():
+            return
         last = self.app_state.get('last_artifact')
         if not last or self.artifact or not (Path(last) / 'manifest.json').is_file():
             return
@@ -1106,11 +1116,17 @@ class Application:
 
     def newest_save(self):
         """progress.sav most recently written, across every save and slot folder."""
+        if self.party_context:
+            saves = Path(self.party_context['saves'])
+            candidates = list(saves.glob('slot_*/progress.sav'))
+            return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
         return newest_save(self.hookshot_root(), TITLE, self.mods.get() or None)
 
     def follow_newest_save(self):
         newest = self.newest_save()
         if newest is None:
+            if self.party_context:
+                self.save_path.set('')
             if not self.save_path.get():
                 self.connection_status.set('No save found. Start a game and save, or choose progress.sav.')
             return False
@@ -1169,6 +1185,9 @@ class Application:
     def tracker_tick(self):
         if self.closed:
             return
+        if self.busy:
+            self.root.after(1000, self.tracker_tick)
+            return
         try:
             if self.auto_save.get():
                 self.follow_newest_save()
@@ -1181,8 +1200,12 @@ class Application:
         self.root.after(1000, self.tracker_tick)   # live memory: ~1 s; the save path is cheap to stat
 
     def refresh_tracker(self):
-        if not self.tracker or self.tracker_refreshing:
+        if self.busy or not self.tracker or self.tracker_refreshing:
             return
+        if self.party_context and self.save_path.get() and not Path(self.save_path.get()).resolve().is_relative_to(
+                Path(self.party_context['saves'])):
+            self.save_path.set('')
+            self.follow_newest_save()
         tracker = self.tracker
         tracker.save_path = self.save_path.get()
         self.tracker_refreshing = True
@@ -1347,6 +1370,7 @@ class Application:
                 return
             settings = bridge.settings_from_patch(
                 bridge.load_patch(name), self.options['skulltulas_always_present'].get()).validate_supported()
+            self.party_name.set('')
             nup = Path(self.nup.get())
             if not nup.is_file():
                 raise ValueError('Select the local NUP file.')
@@ -1483,31 +1507,16 @@ class Application:
                     'Regenerate the seed',
                     f'Seed "{settings.seed}" was made by an older version of the randomizer. Generate it '
                     f'again with version {APP_VERSION}, with the same name and settings?\n\n'
-                    'The current copy is moved to the archive (never deleted). The new version may '
+                    'A named updated party keeps a copy of your progress; the original party is preserved. The new version may '
                     'place items differently: a new game may be needed.'):
                 return
 
-            self.start_generation(nup, mods, settings)
+            self.generate_party(nup, mods, settings, continuing=self.party_context)
         except Exception as error:
             self.error(error)
 
     def start_generation(self, nup, mods, settings):
-        def job(progress):
-            installed = generate_isolated(nup, mods, settings, ARCHIVE, progress)
-            return installed, installed
-        self.run_job(job, self.generated_and_installed)
-
-    def generated_and_installed(self, result):
-        directory, installed = result
-        previous = self.artifact_manifest   # seed replaced by this one (same folder if regenerated)
-        self.use_artifact(directory)
-        self.show_page('tracker')
-        self.status.set('Seed generated and installed: ' + str(installed))
-        warning = qol_seed_warning(Path(installed).parent)
-        messagebox.showinfo('Seed ready', 'Seed installed in:\n' + str(installed)
-                            + '\n\nStart a new game to enable automatic tracking and first collections.'
-                            + ('\n\n' + warning if warning else ''))
-        self.offer_save_migration(self.artifact_manifest, previous)
+        self.generate_party(nup, mods, settings)
 
     def offer_save_migration(self, manifest, previous=None):
         """Offer to give the saves of this seed the start values they never received.
@@ -1517,7 +1526,8 @@ class Application:
         the player agrees, and each save is backed up first (tracker/save_patch.py)."""
         from oot_rando.tracker import save_patch
         try:
-            paths = find_save_slots(self.hookshot_root(), TITLE, self.mods.get() or None)
+            paths = (list(Path(self.party_context['saves']).glob('slot_*/progress.sav')) if self.party_context
+                     else find_save_slots(self.hookshot_root(), TITLE, self.mods.get() or None))
             candidates = save_patch.migration_candidates(paths, manifest, previous)
         except Exception as error:   # never block the installation on a save scan
             self.status.set('Saves not checked: ' + str(error))
@@ -1559,7 +1569,10 @@ class Application:
         self.status.set(text.splitlines()[0])
 
     def use_artifact(self, directory):
+        if self.busy:
+            return
         manifest, _ = read_artifact(directory)
+        self.match_party(directory)
         self.artifact, self.artifact_manifest = Path(directory), manifest
         self.result.set('Seed: ' + manifest['settings']['seed'] + '\nIdentity: ' + manifest['seed_id'][:16]
                         + f' • {len(manifest["files"])} resources checked\n' + str(directory))
@@ -1578,7 +1591,7 @@ class Application:
         if manifest.get('tracking', {}).get('new_save_required'):
             self.result.set(self.result.get() + '\nA new game is needed for automatic tracking.')
         self.seed_name = (manifest['settings']['seed'] or manifest['seed_id'][:12])[:28]
-        self.seed_chip.set('Seed  ' + self.seed_name)
+        self.seed_chip.set(self.party_chip() if self.party_context else 'Seed  ' + self.seed_name)
         self.write_app_state(last_artifact=str(Path(directory).resolve()))
         if self.auto_save.get():
             self.follow_newest_save()
@@ -1588,6 +1601,8 @@ class Application:
         self.status.set('Seed opened.')
 
     def open_artifact(self):
+        if self.busy:
+            return
         directory = filedialog.askdirectory(title='Choose the folder holding manifest.json')
         if directory:
             try:
@@ -1754,6 +1769,8 @@ class Application:
             self.error(error)
 
     def load_tracker(self):
+        if self.busy:
+            return
         self.tracker, self.current_checks = None, []
         self.tracker_details, self.tracker_signature = {}, None
         self.tracker_summary.set('Open a seed to show its locations.')
@@ -1765,7 +1782,26 @@ class Application:
             manifest, catalogue = read_artifact(self.artifact)
             self.current_checks = catalogue['checks']
             live = live_memory.LiveGameData() if live_memory.supported() else None
-            self.tracker = TrackerSession(self.artifact, self.slot.get(), save_path=self.save_path.get(), live=live)
+            manual_directory = None
+            if self.party_context:
+                ident = self.party_context['id']
+                self.slot.set('party-' + ident)
+                manual_directory = self.party_library.tracker_dir(ident)
+                # A save chosen manually must stay inside the active party's account.
+                if self.save_path.get() and not Path(self.save_path.get()).resolve().is_relative_to(
+                        Path(self.party_context['saves'])):
+                    self.save_path.set('')
+                    self.follow_newest_save()
+            self.tracker = TrackerSession(self.artifact, self.slot.get(), save_path=self.save_path.get(),
+                                          live=live, manual_directory=manual_directory)
+            if self.party_context:
+                imported = self.party_library.folder(self.party_context['id']) / 'imported-tracker.json'
+                if imported.is_file() and not self.tracker.manual.path.exists():
+                    checks = json.loads(imported.read_text(encoding='utf-8'))
+                    if checks.get('seed_id') == self.tracker.seed_id:
+                        for check in set(checks.get('completed', [])) & self.tracker.manual.allowed:
+                            self.tracker.manual.set_completed(check, True)
+                    imported.rename(imported.with_suffix('.imported'))
             self.connection_status.set('Reading at the latest save' if self.save_path.get() else 'Choose a progress.sav file to enable automatic tracking.')
             self.render_tracker()
             self.refresh_tracker()
@@ -1865,6 +1901,8 @@ class Application:
                 tree.update_idletasks()
                 tree.yview_moveto(self.tracker_scroll[container])
             def toggle(event=None, widget=tree):
+                if self.busy or self.tracker is None:
+                    return 'break'
                 selection = widget.selection()
                 if selection and not selection[0].startswith('zone::'):
                     ident = selection[0]
@@ -2170,6 +2208,12 @@ class Application:
                     for button in (self.generate_button, self.qol_button):
                         button.state(['!disabled'])
                     if kind == 'error':
+                        self.render_parties()
+                        if self.party_job_paused:
+                            self.party_job_paused = False
+                            if not self.restore_party():
+                                self.load_tracker()
+                                self.start_turbo()
                         self.error(payload)
                     else:
                         callback, value = payload
