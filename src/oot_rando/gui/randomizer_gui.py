@@ -106,6 +106,10 @@ OPTION_TIPS = {
     'open_door_of_time': 'The Door of Time is open from the start and the Master Sword can be pulled without the '
                          'Spiritual Stones or the Song of Time. Zelda\'s escape still gives the Ocarina of Time '
                          'and the Song of Time. To be confirmed in game.',
+    'starting_age': 'Child: the usual start in Kokiri Forest. Adult: a new game begins as adult Link in the '
+                    'Temple of Time, the Door of Time open (forced on) and time travel possible both ways at the '
+                    'pedestal. Link holds the Master Sword, needed to travel back, plus the starting inventory '
+                    'you choose below, nothing else. New save required. To be confirmed in game.',
     'door_of_time_requirement': 'Play the Song of Time with an ocarina at the door. Choose whether this also '
                                 'needs all three Spiritual Stones, only the Goron Ruby and Zora Sapphire, or '
                                 'no stones. Door of Time open overrides this choice. The stones for Zelda\'s '
@@ -183,7 +187,7 @@ OPTION_TIPS = {
 # A visible option missing here is shown at the end, in a card named after its tab.
 SETTING_GROUPS = (
     ('Open world', 'Zones and quests open from the start.',
-     ['game:open_forest', 'open_kakariko', 'open_door_of_time', 'door_of_time_requirement', 'spiritual_stones', 'zora_fountain', 'gerudo_fortress',
+     ['game:open_forest', 'starting_age', 'open_kakariko', 'open_door_of_time', 'door_of_time_requirement', 'spiritual_stones', 'zora_fountain', 'gerudo_fortress',
       'open_gerudo_valley_bridge', 'skip_child_zelda']),
     ('Logic and accessibility', '',
      ['accessibility', 'logic_no_night_tokens_without_suns_song', 'game:skulltulas_always_present']),
@@ -718,13 +722,12 @@ class Application(PartiesPage):
 
     PRESET_CARDS = [('prudent', 'Chests only', 'A gentle first run: chests are shuffled, keys and enemies stay as usual.'),
                     ('ap_defaults', 'Classic', 'The standard Archipelago rules. The recommended balance.'),
-                    ('everything', 'Everything', 'Shops, pots, crates, grass, rocks and enemy souls join in.')]
+                    ('everything', 'Everything', 'Shops, songs, pots, crates, grass, rocks and enemy souls join in.')]
 
     def build_categories(self):
         parent = self.settings_body
         self.full_enabled = tk.BooleanVar(value=True)
         self.full_vars, self.category_controls = {}, {}
-        self.full_reason = tk.StringVar(value='Select a setting to read what it does.')
         self.customize_label, self.customize_hint = tk.StringVar(value='Customize settings  ▸'), tk.StringVar()
         grid = ttk.Frame(parent, style='Page.TFrame')
         grid.pack(fill='x', pady=(0, 14))
@@ -750,7 +753,6 @@ class Application(PartiesPage):
         ttk.Label(row, textvariable=self.customize_hint, style='Page.TLabel').pack(side='left')
         self.details = ttk.Frame(parent, style='Page.TFrame')
         details = self.details
-        ttk.Label(details, textvariable=self.full_reason, style='Page.TLabel', wraplength=780, justify='left').pack(anchor='w', padx=4, pady=(0, 10))
         visible = {}
         for option in rando_options.OPTIONS:
             if option.kind in ('items', 'list'):
@@ -1222,7 +1224,6 @@ class Application(PartiesPage):
         label, help_text = OPTION_COPY.get(option.name, (option.label, option.help))
         tip = option_tip(option, label, help_text)
         def describe():
-            self.full_reason.set(label + ' — ' + (help_text or 'Choose the value that suits your game.'))
             self.update_presets()
         if option.kind in ('items', 'list'):
             variable = ItemsVar() if option.kind == 'items' else ListVar(option)
