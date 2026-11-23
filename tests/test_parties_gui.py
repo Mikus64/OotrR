@@ -152,7 +152,7 @@ class PartiesGuiTests(unittest.TestCase):
             self.assertTrue((Path(mods) / self.a['mod_name'] / 'manifest.json').exists())
             shutil.rmtree(Path(mods) / self.a['mod_name'])
             return artifact(Path(mods), settings.seed)
-        with patch.object(self.app, 'party_display_name', return_value='Aventure mise à jour'), \
+        with patch.object(self.app, 'party_display_name', return_value='Aventure mise à jour'),                 patch.object(self.app, 'party_destination', return_value=self.saves), \
                 patch('oot_rando.gui.parties_page.generate_isolated', side_effect=generate), \
                 patch('oot_rando.gui.parties_page.messagebox.showinfo'), \
                 patch.object(self.app, 'offer_save_migration'):
