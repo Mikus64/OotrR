@@ -495,7 +495,10 @@ class Application(PartiesPage):
         def choose():
             value = filedialog.askopenfilename(filetypes=[('NUP game', '*.nup')]) if kind == 'file' else filedialog.askdirectory()
             if value:
-                variable.set(value)
+                if kind == 'directory' and variable is self.mods:
+                    value = self._normalize_chosen_mods_dir(value)
+                if value:
+                    variable.set(value)
         ttk.Button(row, text='Browse…', command=choose).pack(side='right', padx=(8, 0))
 
     def build_setup(self):
@@ -1098,9 +1101,169 @@ class Application(PartiesPage):
         except OSError:
             pass
 
+    def _prompt_longshot_channel(self, channels, default_channel=None):
+        if not channels:
+            return None
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose Longshot Channel")
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
+        dlg.configure(background=self.colors["page"])
+
+        frame = ttk.Frame(dlg, padding=(22, 18), style="Page.TFrame")
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Multiple Longshot channels detected", style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="Choose which Longshot installation to use:",
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 12))
+
+        default_key = default_channel if any(c["channel"] == default_channel for c in channels) else channels[0]["channel"]
+        selected_var = tk.StringVar(value=default_key)
+        for ch in channels:
+            lbl = ch["label"]
+            ver = ch["version_name"]
+            ttk.Radiobutton(frame, text=f"{lbl}  —  {ver}", value=ch["channel"], variable=selected_var).pack(anchor="w", pady=3)
+            ttk.Label(frame, text="    " + str(ch["mods_dir"]), style="Small.TLabel", wraplength=460).pack(anchor="w", pady=(0, 6))
+
+        chosen = {"value": None}
+
+        def confirm(_event=None):
+            key = selected_var.get()
+            chosen["value"] = next((c for c in channels if c["channel"] == key), channels[0])
+            dlg.destroy()
+
+        def cancel(_event=None):
+            dlg.destroy()
+
+        btns = ttk.Frame(frame, style="Page.TFrame")
+        btns.pack(fill="x", pady=(12, 0))
+        ttk.Button(btns, text="Cancel", command=cancel).pack(side="right", padx=(8, 0))
+        ttk.Button(btns, text="Use Selected Channel", style="Accent.TButton", command=confirm).pack(side="right")
+
+        dlg.bind("<Return>", confirm)
+        dlg.bind("<Escape>", cancel)
+        dlg.protocol("WM_DELETE_WINDOW", cancel)
+        dlg.update_idletasks()
+        try:
+            rx = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - dlg.winfo_width()) // 2)
+            ry = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - dlg.winfo_height()) // 2)
+            dlg.geometry(f"+{rx}+{ry}")
+        except Exception:
+            pass
+        dlg.grab_set()
+        self.root.wait_window(dlg)
+        return chosen["value"]
+
+    def _normalize_chosen_mods_dir(self, raw_path):
+        from oot_rando import pc_port
+        norm = pc_port.normalize_port_mods_dir(raw_path)
+        if not norm:
+            return ""
+        p = Path(norm)
+        if p.name.upper() == TITLE or (p.name.lower() == "mods" and pc_port.is_port_folder(p.parent)):
+            return norm
+        info = pc_port.resolve_longshot_update(norm)
+        if info["status"] == "choose_channel":
+            chosen = self._prompt_longshot_channel(info["channels"], default_channel=info["current_channel"])
+            return str(chosen["mods_dir"]) if chosen is not None else ""
+        if info["recommended"] is not None:
+            return str(info["recommended"]["mods_dir"])
+        return norm
+
+    def _resolve_stale_mods_path(self, stale_mods):
+        from oot_rando import pc_port
+        info = pc_port.resolve_longshot_update(stale_mods)
+        if info["status"] == "upgraded" and info["recommended"] is not None:
+            return str(info["recommended"]["mods_dir"])
+        if info["status"] == "choose_channel":
+            chosen = self._prompt_longshot_channel(info["channels"], default_channel=info["current_channel"])
+            if chosen is not None:
+                return str(chosen["mods_dir"])
+        return ""
+
+    def _reconcile_longshot_installation(self):
+        from oot_rando import pc_port
+
+        candidates = []
+        cur_mods = self.mods.get().strip()
+        if cur_mods:
+            candidates.append(cur_mods)
+        if self.party_library and self.party_library.active_id:
+            try:
+                active = self.party_library.get(self.party_library.active_id)
+                if active.get("mods") and active["mods"] not in candidates:
+                    candidates.append(active["mods"])
+            except Exception:
+                pass
+
+        info = None
+        source_mods = ""
+        for cand in candidates:
+            probe = pc_port.resolve_longshot_update(cand)
+            if probe["status"] != "not_longshot":
+                info = probe
+                source_mods = cand
+                break
+
+        if info is None:
+            return ""
+
+        if info["status"] == "choose_channel":
+            chosen = self._prompt_longshot_channel(info["channels"], default_channel=info["current_channel"])
+            if chosen is None:
+                return ""
+        elif info["status"] == "upgraded":
+            chosen = info["recommended"]
+        else:
+            if self.party_library is not None and info["recommended"] is not None:
+                try:
+                    migrated = self.party_library.migrate_mods_directory(
+                        str(info["recommended"]["mods_dir"]),
+                        root=info["root"],
+                    )
+                    if migrated:
+                        self.render_parties()
+                except Exception:
+                    pass
+            return ""
+
+        new_mods = str(chosen["mods_dir"])
+        migrated = []
+        if self.party_library is not None:
+            try:
+                migrated = self.party_library.migrate_mods_directory(
+                    new_mods,
+                    old_mods=source_mods,
+                    root=info["root"],
+                )
+            except Exception:
+                migrated = []
+
+        self.mods.set(new_mods)
+        if migrated:
+            self.render_parties()
+
+        old_ver = Path(source_mods).parent.name if source_mods else ""
+        old_chan = info.get("current_channel") or ""
+        old_desc = f"{old_chan}/{old_ver}".strip("/") if old_ver else source_mods
+        new_desc = chosen["channel"] + "/" + chosen["version_name"]
+        noun = "party" if len(migrated) == 1 else "parties"
+        extra = f" (migrated {len(migrated)} {noun})" if migrated else ""
+        return f"Longshot updated: {old_desc} → {new_desc}{extra}."
+
     def restore_last_artifact(self):
+        ls_notice = self._reconcile_longshot_installation()
         if self.restore_party():
+            if ls_notice:
+                cur_status = self.status.get()
+                self.status.set(ls_notice + ("  " + cur_status if cur_status else ""))
             return
+        if ls_notice:
+            self.status.set(ls_notice)
         last = self.app_state.get('last_artifact')
         if not last or self.artifact or not (Path(last) / 'manifest.json').is_file():
             return
