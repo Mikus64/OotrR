@@ -156,11 +156,19 @@ class TrackerSession:
         self._fingerprint = None
         self._logic, self._logic_error = None, ''
         self._observed, self._goal = False, False
+        self._link = 'none'   # see ``link``
         self._source_path = ''
         self._good_summary = None
         self._summary = {'status': 'Choose a save to enable automatic tracking.',
                          'updated_at': '', 'automatic': 0, 'available': 0, 'blocked': 0,
                          'unknown': len(self.checks)}
+
+    @property
+    def link(self):
+        """How the save relates to the seed at the latest read: 'linked' (a save of this seed),
+        'other' (a save of another seed or of the vanilla game) or 'none' (no save read yet)."""
+        with self._lock:
+            return self._link
 
     @property
     def goal_reached(self):
@@ -364,11 +372,15 @@ class TrackerSession:
         if not self.metadata:
             return self._failure('This old seed has no tracking data. Generate a new seed.')
         if not path:
+            with self._lock:
+                self._link = 'none'
             return self._failure('Choose the progress.sav file of the game to track.')
         try:
             snapshot = load_snapshot(path)
             marker = self.metadata.get('seed_marker')
             if not marker or snapshot['bool'].get(int(marker)) is not True:
+                with self._lock:
+                    self._link = 'other'
                 return self._failure('This save is not linked to this seed. Start a new game with this seed.', reset=True)
             live_digest, self.live_status = None, ''
             if self.live is not None:
@@ -403,6 +415,7 @@ class TrackerSession:
                 self._inventory = inventory
                 self._keys = keys
                 self._fingerprint, self._observed, self._source_path = token, True, path
+                self._link = 'linked'
                 self._summary = {'status': status, 'updated_at': stamp, 'automatic': len(automatic),
                                  'available': sum(v == 'available' for v in access.values()),
                                  'blocked': sum(v == 'blocked' for v in access.values()),

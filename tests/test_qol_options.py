@@ -68,7 +68,7 @@ class QolOptionsTests(unittest.TestCase):
                 self.app.options['skip_chest_cutscenes'].set(not enabled)
                 path.write_text(to_ap_yaml({'fast_chests': enabled}), encoding='utf-8')
                 with patch('oot_rando.gui.randomizer_gui.filedialog.askopenfilename', return_value=str(path)), \
-                     patch('oot_rando.gui.randomizer_gui.messagebox.showinfo'):
+                     patch.object(self.app, 'notify'), patch.object(self.app, 'show_notice'):
                     self.app.import_ap_yaml()
                 self.assertEqual(self.app.options['skip_chest_cutscenes'].get(), enabled)
                 self.assertEqual(self.app.full_values()['fast_chests'], enabled)
