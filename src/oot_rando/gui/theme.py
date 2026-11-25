@@ -68,6 +68,17 @@ def wheel_units(num, delta):
     return int(-delta / 120) or (-1 if delta > 0 else 1)
 
 
+def keep_values_on_wheel(root):
+    """The wheel scrolls the page, never the value under the pointer.
+
+    Tk's own combobox and spinbox bindings step their value on a wheel turn: scrolling the
+    settings with the pointer over one silently changed a setting. Without them the event
+    reaches the page's scroll binding instead."""
+    for widget_class in ('TCombobox', 'TSpinbox'):
+        for sequence in WHEEL_EVENTS + ('<Shift-MouseWheel>',):
+            root.unbind_class(widget_class, sequence)
+
+
 def _png(width, height, pixels):
     """Encode RGBA rows (list of bytearrays) as a PNG, base64 for tk.PhotoImage."""
     raw = b''.join(b'\x00' + bytes(row) for row in pixels)
@@ -278,6 +289,7 @@ def apply(root):
         **{'state_' + key: disc(color, 9) for key, color in STATE_COLORS.items()},
     }
     root.configure(background=c['page'])
+    keep_values_on_wheel(root)
     style = ttk.Style(root)
     style.theme_use('clam')
     style.configure('.', background=c['surface'], foreground=c['text'], font=f.body, bordercolor=c['line'],
