@@ -537,6 +537,17 @@ class Application(PartiesPage):
         if self.notice_area.winfo_manager():
             self.notice_area.pack_forget()
 
+    def show_status_bar(self, shown):
+        """The step of a long job (generation, download) and a moving bar; hidden otherwise."""
+        if shown and not self.status_bar.winfo_manager():
+            self.status_bar.pack(side='bottom', fill='x', pady=(12, 0), padx=(0, PAGE_GUTTER), before=self.tabs)
+            self.progress.pack(side='right', padx=(12, 0))
+            self.progress.start()
+        elif not shown and self.status_bar.winfo_manager() and not self.busy and self.updating != 'install':
+            self.progress.stop()
+            self.progress.pack_forget()
+            self.status_bar.pack_forget()
+
     def copy_text(self, text):
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
@@ -1115,7 +1126,7 @@ class Application(PartiesPage):
         bar.pack(fill='x', pady=(0, 10))
         self.sync_dot = ttk.Label(bar, style='Page.TLabel', image=self.images['dot_off'])
         self.sync_dot.pack(side='left', padx=(4, 8))
-        ttk.Label(bar, textvariable=self.connection_status, style='Page.TLabel', wraplength=470, justify='left').pack(side='left')
+        ttk.Label(bar, textvariable=self.connection_status, style='Page.TLabel', wraplength=340, justify='left').pack(side='left')
         ttk.Button(bar, text='Change', style='Page.Link.TButton', command=lambda: self.show_page('setup')).pack(side='left', padx=(10, 0))
         ttk.Button(bar, text='Pop-out window', style='Page.Link.TButton', command=self.toggle_overlay).pack(side='right')
         ttk.Button(bar, text='In-game overlay', style='Page.Link.TButton', command=self.toggle_hud).pack(side='right', padx=14)
@@ -1298,9 +1309,14 @@ class Application(PartiesPage):
                 text=f'\u2713 Exported for {record.get("player", "?")} · {record.get("preset", "")} · {record.get("date", "")}'
                 if exported else f'Settings changed since the export of {record.get("date", "")}: export again.',
                 style='Ok.TLabel' if exported else 'Small.TLabel')
-        if record and not self.ap_export_info.winfo_manager():
+        elif self.app_state.get('ap_yaml_exported'):
+            # Exports made by older versions kept no record of their settings: they cannot be checked.
+            self.ap_export_info.configure(text='A YAML was exported before this version, without a record of its '
+                                          'settings: export again to keep track of them.', style='Small.TLabel')
+        shown = bool(record or self.app_state.get('ap_yaml_exported'))
+        if shown and not self.ap_export_info.winfo_manager():
             self.ap_export_info.pack(anchor='w', pady=(8, 0))
-        elif not record:
+        elif not shown:
             self.ap_export_info.pack_forget()
         # The three steps: done ones are checked, the next one is highlighted.
         done = [exported or bool(self.ap_manifest), bool(self.ap_manifest), bool(self.ap_client)]
@@ -1876,15 +1892,22 @@ class Application(PartiesPage):
             return
         try:
             settings, version = settings_string.decode(text)
-            if version != GENERATOR_VERSION and not messagebox.askyesno(
-                    'Other randomizer version',
-                    f'This seed string comes from generator {version}; this application uses '
-                    f'{GENERATOR_VERSION}. The same settings may give a different game. Import anyway?'):
-                return
-            self.apply_settings(settings)
-            self.notify('Seed string imported: seed "' + settings.seed + '".')
         except Exception as error:
             self.error(error)
+            return
+        def apply():
+            try:
+                self.apply_settings(settings)
+                self.clear_notices()
+                self.notify('Seed string imported: seed "' + settings.seed + '".')
+            except Exception as error:
+                self.error(error)
+        if version == GENERATOR_VERSION:
+            apply()
+            return
+        self.show_notice('warn', f'This seed string comes from generator {version}',
+                         f'This application uses {GENERATOR_VERSION}: the same settings may give a different game.',
+                         [('Import anyway', apply), ('Cancel', self.clear_notices)])
 
     def import_settings(self):
         name = filedialog.askopenfilename(filetypes=[('JSON settings', '*.json')])
@@ -1915,9 +1938,7 @@ class Application(PartiesPage):
         self.busy = True
         self.clear_notices()
         self.status.set('Working…')
-        self.status_bar.pack(side='bottom', fill='x', pady=(12, 0), before=self.tabs)
-        self.progress.pack(side='right', padx=(12, 0))
-        self.progress.start()
+        self.show_status_bar(True)
         for button in (self.generate_button, self.qol_button):
             button.state(['disabled'])
         def worker():
@@ -1981,14 +2002,18 @@ class Application(PartiesPage):
         listing = '\n'.join('• ' + str(path) for path, _ in candidates[:6])
         if len(candidates) > 6:
             listing += f'\n• … and {len(candidates) - 6} more'
-        if not messagebox.askyesno(
-                'Update the saves of this seed',
-                f'{len(candidates)} save(s) of this seed were started before some fixes of this version and '
-                f'miss {len(names)} start value(s) (' + ', '.join(names[:4]) + (', …' if len(names) > 4 else '')
-                + ').\n\n' + listing + '\n\nUpdate them now? Close the game first. Each save is backed up '
-                'next to it (progress.sav' + save_patch.BACKUP_SUFFIX + '<date>) and only flags it already '
-                'holds are changed.'):
-            return
+        self.show_notice(
+            'warn', f'{len(candidates)} save(s) of this seed miss fixes of this version',
+            f'They were started before these fixes and miss {len(names)} start value(s) ('
+            + ', '.join(names[:4]) + (', …' if len(names) > 4 else '') + ').\n' + listing
+            + '\nClose the game first. Each save is backed up next to it (progress.sav'
+            + save_patch.BACKUP_SUFFIX + '<date>) and only flags it already holds are changed.',
+            [('Update the saves', lambda: self.migrate_saves(manifest, previous, candidates)),
+             ('Not now', self.clear_notices)])
+
+    def migrate_saves(self, manifest, previous, candidates):
+        from oot_rando.randomizer import save_patch
+        self.clear_notices()
         markers = save_patch.migration_markers(manifest, previous)
         values = save_patch.migration_values(manifest, previous)
         done, failed = [], []
@@ -2254,6 +2279,8 @@ class Application(PartiesPage):
             for location, item in entries:
                 tree.insert(node, 'end', text=location, values=(item,),
                             tags=('minor' if self.spoiler_minor_item(item) else 'major',))
+        for tree in self.spoiler_trees.values():
+            theme.fit_tree(tree, self.fonts)
         self.spoiler_summary.set(f'{shown} of {len(self.spoiler["rows"])} locations shown · '
                                  f'{len(self.spoiler["playthrough"])} progression spheres')
 
@@ -2360,10 +2387,11 @@ class Application(PartiesPage):
             tree = ttk.Treeview(tree_frame, columns=('state', 'reward', 'kind'), show='tree headings', selectmode='browse', height=9)
             self.tracker_trees[container] = tree
             tree.heading('#0', text='Zone / location', anchor='w')
-            tree.column('#0', width=350, minwidth=200, stretch=True)
-            for key, title, width in [('state', 'State', 150), ('reward', 'Reward', 190), ('kind', 'Type', 110)]:
+            # Widths that fit the minimum window (1040 px); the name and the reward take the rest.
+            tree.column('#0', width=250, minwidth=160, stretch=True)
+            for key, title, width in [('state', 'State', 130), ('reward', 'Reward', 150), ('kind', 'Type', 100)]:
                 tree.heading(key, text=title, anchor='w')
-                tree.column(key, width=width, minwidth=80, stretch=(key == 'reward'))
+                tree.column(key, width=width, minwidth=70, stretch=(key == 'reward'))
             for tag, color in theme.STATE_COLORS.items():
                 tree.tag_configure(tag, foreground=color)
             tree.tag_configure('zone', font=self.fonts.strong)
@@ -2390,7 +2418,7 @@ class Application(PartiesPage):
                 if query and query not in (region + ' ' + name + ' ' + kind + ' ' + reward).casefold():
                     continue
                 if region not in zones:
-                    zones[region] = tree.insert('', 'end', iid='zone::' + region, open=self.zone_open.get(region, bool(query)), text=region, values=(self.zone_bar(done[region], totals[region]), f'{available[region]} available' if available[region] else '', ''), tags=('zone',))
+                    zones[region] = tree.insert('', 'end', iid='zone::' + region, open=self.zone_open.get(region, bool(query)), text=' ' + region, image=self.zone_bar(done[region], totals[region]), values=(f'{done[region]} / {totals[region]}', f'{available[region]} available' if available[region] else '', ''), tags=('zone',))
                 state_key = 'done' if completed else access if access in theme.STATE_MARKS else 'unknown'
                 label = theme.STATE_MARKS[state_key] + '  ' + {'done': 'Done', 'available': 'Available', 'partial': 'Partial zone',
                                                             'blocked': 'Blocked', 'unknown': 'Unknown'}[state_key]
@@ -2405,6 +2433,7 @@ class Application(PartiesPage):
                 tree.insert(zones[region], 'end', iid=check['id'], text=' ' + name, image=self.images[box],
                             values=(label, reward, kind), tags=(state_key,))
                 visible += 1
+            theme.fit_tree(tree, self.fonts)
             tree.bind('<<TreeviewOpen>>', lambda event, widget=tree: self.remember_zone(widget, True))
             tree.bind('<<TreeviewClose>>', lambda event, widget=tree: self.remember_zone(widget, False))
             if selected and tree.exists(selected[0]):
@@ -2523,11 +2552,15 @@ class Application(PartiesPage):
         if self.tracker_view in has and not has[self.tracker_view]:
             self.set_tracker_view('locations')
 
-    @staticmethod
-    def zone_bar(done, total, cells=8):
-        """Zone progress in the State column: filled squares, then the count."""
-        filled = round(cells * done / total) if total else 0
-        return '\u25a0' * filled + '\u25a1' * (cells - filled) + f'   {done} / {total}'
+    def zone_bar(self, done, total, width=48):
+        """Progress image drawn before a zone name (one image per filled width, kept)."""
+        filled = round(width * done / total) if total else 0
+        if done and not filled:
+            filled = 1   # something found shows
+        cache = self.__dict__.setdefault('zone_bars', {})
+        if filled not in cache:
+            cache[filled] = theme.progress_bar(filled, width)
+        return cache[filled]
 
 
     def render_keys(self):
@@ -2718,6 +2751,7 @@ class Application(PartiesPage):
                 elif kind == 'update-error':
                     silent = payload[1] and self.update_silent
                     self.updating = False
+                    self.show_status_bar(False)
                     if not silent:
                         self.error('Update failed: ' + str(payload[0]))
                 elif kind == 'ap-change':
@@ -2730,9 +2764,7 @@ class Application(PartiesPage):
                     self.log.configure(state='disabled')
                 else:
                     self.busy = False
-                    self.progress.stop()
-                    self.progress.pack_forget()
-                    self.status_bar.pack_forget()
+                    self.show_status_bar(False)
                     for button in (self.generate_button, self.qol_button):
                         button.state(['!disabled'])
                     if kind == 'error':
@@ -2792,20 +2824,23 @@ class Application(PartiesPage):
         elif not updater.is_newer(release.version, APP_VERSION):
             notes = ('\n\nThis is the latest stable version: it replaces the experimental version you have. '
                      'A seed made with the experimental version may not work with it.') + notes
+        title = f'Version {release.version} is available (you have {APP_VERSION})'
         if not updater.can_self_update():
-            if messagebox.askyesno('Update available', f'Version {release.version} is available (you have '
-                                   f'{APP_VERSION}).{notes}\n\nOpen the release page?'):
-                webbrowser.open(release.page)
+            self.show_notice('info', title, notes.strip(), [('Open the release page', lambda: webbrowser.open(release.page)),
+                                                             ('Not now', self.clear_notices)])
             return
-        if not messagebox.askyesno('Update available', f'Version {release.version} is available (you have '
-                                   f'{APP_VERSION}).{notes}\n\nDownload and install it now? The application '
-                                   'restarts; your seeds and settings are kept.'):
-            return
+        self.show_notice('info', title, (notes.strip() + '\n\n' if notes.strip() else '')
+                         + 'The application restarts after the installation; your seeds and settings are kept.',
+                         [('Download and install', lambda: self.install_update(release)), ('Not now', self.clear_notices)])
+
+    def install_update(self, release):
+        self.clear_notices()
         if self.busy:
             self.notify('Wait for the generation to finish, then check again.')
             return
         self.updating = 'install'
         self.status.set(f'Downloading version {release.version}…')
+        self.show_status_bar(True)
 
         def worker():
             try:
@@ -2816,8 +2851,12 @@ class Application(PartiesPage):
 
     def update_installed(self, target):
         self.updating = False
-        if messagebox.askyesno('Update installed', 'The new version is installed. Restart now?') and self.close():
-            updater.restart(target)   # only once this instance is gone: never two running
+        self.show_status_bar(False)
+        def restart():
+            if self.close():
+                updater.restart(target)   # only once this instance is gone: never two running
+        self.show_notice('info', 'The new version is installed', 'Restart to use it.',
+                         [('Restart now', restart), ('Later', self.clear_notices)])
 
     def error(self, error):
         """A banner in the current page: the problem, then what helps (no window)."""

@@ -6,7 +6,7 @@ from pathlib import Path
 import secrets
 import tempfile
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog, simpledialog
 
 from oot_rando.parties import PartyLibrary, validate_save_root
 from oot_rando.randomizer.artifact import is_randomizer_seed, read_artifact
@@ -357,12 +357,19 @@ class PartiesPage:
             if not self.parties_ready():
                 return
             party = self.party_library.get(ident)
-            if messagebox.askyesno('Delete party', f'Remove “{party["name"]}” from My Games?\n\n'
-                                  'A copy will remain in Parties/.deleted.', parent=self.root):
-                self.party_library.delete(ident)
-                self.render_parties()
         except Exception as error:
             self.error(error)
+            return
+        def delete():
+            try:
+                self.clear_notices()
+                self.party_library.delete(ident)
+                self.render_parties()
+                self.notify(f'“{party["name"]}” removed. A copy remains in Parties/.deleted.')
+            except Exception as error:
+                self.error(error)
+        self.show_notice('warn', f'Remove “{party["name"]}” from My Games?',
+                         'A copy will remain in Parties/.deleted.', [('Remove', delete), ('Cancel', self.clear_notices)])
 
     def party_folder(self, ident):
         try:

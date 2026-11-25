@@ -155,6 +155,16 @@ def switch(on, disabled=False, margin=10):
     return _paint(w + margin, h, layers)
 
 
+def progress_bar(filled, width=48, height=8):
+    """Small rounded progress bar: ``filled`` pixels of gold on a parchment track."""
+    c = COLORS
+    radius = height / 2
+    layers = [(lambda x, y: _box_distance(x, y, 0, 0, width, height, radius), c['line'], 1.0)]
+    if filled:
+        layers.append((lambda x, y: _box_distance(x, y, 0, 0, max(filled, height), height, radius), c['gold'], 1.0))
+    return _paint(width + 6, height, layers)   # 6 px of air before the zone name
+
+
 def disc(color, size, border=None, width=2.0):
     """Filled circle (status dot, step badge). With ``border``, an outlined circle."""
     half = size / 2
@@ -874,6 +884,62 @@ class Tooltip:
         if self.window is not None:
             self.window.destroy()
             self.window = None
+
+
+def ellipsize(text, font, width):
+    """``text`` cut to ``width`` pixels with an ellipsis: a cut word must not read as another one."""
+    text = str(text)
+    if width <= 0 or font.measure(text) <= width:
+        return text
+    low, high = 0, len(text)
+    while low < high:   # longest prefix that fits with its ellipsis
+        middle = (low + high + 1) // 2
+        if font.measure(text[:middle].rstrip() + '…') <= width:
+            low = middle
+        else:
+            high = middle - 1
+    return text[:low].rstrip() + '…'
+
+
+def fit_tree(tree, fonts, fresh=True):
+    """Show every cell of ``tree`` cut with an ellipsis to its column width.
+
+    With ``fresh`` the current texts are the full ones (call it right after filling the
+    tree); the tree then refits itself from them whenever it or a column is resized."""
+    if fresh or not hasattr(tree, 'full_text'):
+        tree.full_text = {}
+        stack = list(tree.get_children(''))
+        while stack:
+            iid = stack.pop()
+            tree.full_text[iid] = (tree.item(iid, 'text'), tuple(tree.item(iid, 'values')))
+            stack.extend(tree.get_children(iid))
+    if not hasattr(tree, 'fit_fonts'):
+        tree.fit_fonts = (tkfont.Font(root=tree, font=fonts.body), tkfont.Font(root=tree, font=fonts.strong))
+        pending = {'id': None}
+        def later(event=None):
+            if pending['id'] is None:
+                def run():
+                    pending['id'] = None
+                    if tree.winfo_exists():
+                        fit_tree(tree, fonts, fresh=False)
+                pending['id'] = tree.after_idle(run)
+        tree.bind('<Configure>', later, add='+')
+        tree.bind('<ButtonRelease-1>', later, add='+')   # a column dragged wider or narrower
+    body, strong = tree.fit_fonts
+    columns = list(tree['columns'])
+    widths = [tree.column(column, 'width') - 14 for column in columns]
+    tree_width = tree.column('#0', 'width')
+    for iid, (text, values) in tree.full_text.items():
+        if not tree.exists(iid):
+            continue
+        font = strong if 'zone' in tree.item(iid, 'tags') else body
+        depth, parent = 0, tree.parent(iid)
+        while parent:
+            depth, parent = depth + 1, tree.parent(parent)
+        image = tree.item(iid, 'image')
+        room = tree_width - 20 * (depth + 1) - (int(tree.tk.call('image', 'width', image[0])) + 4 if image else 0) - 10
+        tree.item(iid, text=ellipsize(text, font, room),
+                  values=[ellipsize(value, font, width) for value, width in zip(values, widths)])
 
 
 def info_icon(parent, fonts, background=None):

@@ -58,7 +58,7 @@ validé avant d'être codé.
   « Open the error log » quand il est récent) ; succès en toasts de 6 s ; décisions (mise à jour, sauvegardes,
   suppression, version de seed string) en bandeaux avec leurs boutons. Seule la fermeture pendant que Turbo A
   joue pour le jeu garde une fenêtre : la fenêtre se ferme, il n'y a plus de page où afficher un bandeau.
-  La barre d'état n'apparaît que pendant un travail long.
+  La barre d'état n'apparaît que pendant un travail long (génération, téléchargement d'une mise à jour).
 - **Clavier** : entrées du menu focalisables (Tab, Entrée, Espace, flèches), Ctrl+1 à Ctrl+9, anneau de focus
   or sur les boutons et interrupteurs.
 - **Accueil** : nom de partie ou « Game of 24 Nov », hash en chasse fixe groupé par 4 ; tuile Save alignée sur
@@ -66,11 +66,13 @@ validé avant d'être codé.
   aventure courante en bas du menu.
 - **Tracker** : bandeau quand la sauvegarde n'est pas celle de la seed ; compteurs Available / Blocked /
   Unknown / Done / All ; sélecteur Locations / Keys / Souls ; barre de progression dessinée devant chaque zone ;
-  case à cocher en tête de ligne (grisée quand la sauvegarde confirme le lieu).
+  case à cocher en tête de ligne (grisée quand la sauvegarde confirme le lieu) ; colonnes à la taille minimale,
+  texte coupé avec « … ».
 - **Spoiler** : tableau masqué par des barres grises et confirmation dans la page ; colonnes à la taille
   minimale, texte coupé avec « … » ; sélecteur segmenté.
 - **Multiworld** : étape 3 verrouillée tant qu'aucune seed Archipelago n'est ouverte ; journal et chat une fois
-  connecté ; étape 1 valide tant que les réglages exportés n'ont pas changé.
+  connecté ; étape 1 valide tant que les réglages exportés n'ont pas changé (un export d'une version
+  précédente, sans trace de ses réglages, est signalé : il faut l'exporter à nouveau).
 - **Setup** : chemins vérifiés sous leur champ, émulateurs supplémentaires dans « Advanced », une seule carte
   Updates, interrupteur My Games (l'entrée de menu n'apparaît que s'il est activé).
 
