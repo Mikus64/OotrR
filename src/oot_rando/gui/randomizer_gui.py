@@ -1,5 +1,6 @@
 """Desktop application (Tkinter). Run with ``python -m oot_rando``."""
 import ctypes
+from typing import Optional
 import json
 import os
 from pathlib import Path
@@ -8,7 +9,8 @@ import secrets
 import threading
 import webbrowser
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, messagebox, simpledialog
+from oot_rando import native_dialogs as filedialog
 
 from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VERSION
 from oot_rando.randomizer.randomizer_services import (read_artifact,
@@ -24,7 +26,7 @@ from oot_rando.patching.randomize_kokiri import POOL, TITLE
 from oot_rando.game.randomizer_categories import CATEGORIES
 from oot_rando.game.world_maps import SAFE_CATEGORIES
 from oot_rando.logic import rando_options
-from oot_rando.paths import data_dir, seeds_dir, state_dir
+from oot_rando.paths import data_dir, open_in_file_manager, seeds_dir, state_dir
 from oot_rando.gui import theme
 from oot_rando.gui.parties_page import PartiesPage
 from oot_rando import __version__ as APP_VERSION, updater
@@ -316,7 +318,7 @@ class Application(PartiesPage):
         self.nup.set(self.app_state.get('game_file') or '')
         self.mods.set(self.app_state.get('mods_dir') or default_mods_dir())
         self.nup.trace_add('write', lambda *args: self.write_app_state(game_file=self.nup.get()))
-        self.mods.trace_add('write', lambda *args: self.write_app_state(mods_dir=self.mods.get()))
+        self.mods.trace_add('write', self._on_mods_dir_changed)
         self.check_updates = tk.BooleanVar(value=self.app_state.get('check_updates', True) is not False)
         self.check_updates.trace_add('write', lambda *args: self.write_app_state(check_updates=self.check_updates.get()))
         # Opt-in: also offer the GitHub pre-releases (vX.Y.Z-beta.N) when checking for updates.
@@ -344,8 +346,11 @@ class Application(PartiesPage):
         self.sidebar.pack(side='left', fill='y')
         outer = ttk.Frame(root, padding=(34, 26, 34, 18), style='Page.TFrame')
         outer.pack(side='left', fill='both', expand=True)
+        self._outer = outer
         header = ttk.Frame(outer, style='Page.TFrame')
         header.pack(fill='x', pady=(0, 18))
+        self._header = header
+        self._startup_modal_open = False
         self.page_title, self.page_subtitle = tk.StringVar(), tk.StringVar()
         titles = ttk.Frame(header, style='Page.TFrame')
         titles.pack(side='left', fill='x', expand=True)
@@ -382,19 +387,58 @@ class Application(PartiesPage):
         self.update_home()
         bottom = ttk.Frame(outer, style='Page.TFrame')
         bottom.pack(side='bottom', fill='x', pady=(12, 0), before=self.tabs)
+        self._bottom = bottom
         self.progress = ttk.Progressbar(bottom, mode='indeterminate', length=120)
         ttk.Label(bottom, textvariable=self.status, style='Page.TLabel', wraplength=760).pack(side='left', fill='x')
         self.show_page('home')
         self.root.protocol('WM_DELETE_WINDOW', self.close)
         self.register_hotkey()
         self.tracker_search.trace_add('write', lambda *args: self.render_tracker())
-        root.after(100, self.poll)
+        self._after_ids = set()
+        self.root.bind("<Destroy>", self._on_root_destroy, add="+")
+        self._schedule_after(100, self.poll)
         updater.cleanup()
         if self.check_updates.get():
-            root.after(2500, lambda: self.check_for_updates(silent=True))
-        root.after(1800, self.tracker_tick)
-        root.after(50, self.restore_last_artifact)
-        root.after(60, self.start_turbo)
+            self._schedule_after(2500, lambda: self.check_for_updates(silent=True))
+        self._schedule_after(1800, self.tracker_tick)
+        self._schedule_after(50, self.restore_last_artifact)
+        self._schedule_after(60, self.start_turbo)
+
+    def _schedule_after(self, delay_ms, callback):
+        if getattr(self, 'closed', False):
+            return None
+        ids = getattr(self, '_after_ids', None)
+        if ids is None:
+            ids = set()
+            self._after_ids = ids
+        box = [None]
+        def _wrapped():
+            if box[0] is not None:
+                ids.discard(box[0])
+            if getattr(self, 'closed', False):
+                return
+            callback()
+        aid = self.root.after(delay_ms, _wrapped)
+        box[0] = aid
+        ids.add(aid)
+        return aid
+
+    def _on_root_destroy(self, event=None):
+        if event is not None and getattr(event, "widget", None) is not self.root:
+            return
+        self.closed = True
+        self._cancel_all_after()
+
+    def _cancel_all_after(self):
+        ids = getattr(self, '_after_ids', None)
+        if not ids:
+            return
+        for aid in list(ids):
+            try:
+                self.root.after_cancel(aid)
+            except Exception:
+                pass
+        ids.clear()
 
     def configure_theme(self):
         self.colors = dict(theme.COLORS, bg=theme.COLORS['surface'], accent=theme.COLORS['green'])
@@ -493,9 +537,26 @@ class Application(PartiesPage):
         row.pack(fill='x', pady=(5, 0))
         ttk.Entry(row, textvariable=variable).pack(side='left', fill='x', expand=True)
         def choose():
-            value = filedialog.askopenfilename(filetypes=[('NUP game', '*.nup')]) if kind == 'file' else filedialog.askdirectory()
+            current = variable.get().strip()
+            value = (
+                filedialog.askopenfilename(
+                    title='Choose Game File (.nup)',
+                    initialdir=current,
+                    filetypes=[('NUP game', '*.nup')],
+                    parent=self.root,
+                )
+                if kind == 'file'
+                else filedialog.askdirectory(
+                    title='Choose Folder',
+                    initialdir=current,
+                    parent=self.root,
+                )
+            )
             if value:
-                variable.set(value)
+                if kind == 'directory' and variable is self.mods:
+                    value = self._normalize_chosen_mods_dir(value)
+                if value:
+                    variable.set(value)
         ttk.Button(row, text='Browse…', command=choose).pack(side='right', padx=(8, 0))
 
     def build_setup(self):
@@ -1098,17 +1159,215 @@ class Application(PartiesPage):
         except OSError:
             pass
 
+    def _prompt_longshot_channel(self, channels, default_channel=None):
+        """Modal picker shown when 2+ Longshot channels (stable / RC / nightly) are installed."""
+        if not channels:
+            return None
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose Longshot Channel")
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
+        dlg.configure(background=self.colors["page"])
+
+        frame = ttk.Frame(dlg, padding=(22, 18), style="Page.TFrame")
+        frame.pack(fill="both", expand=True)
+        ttk.Label(
+            frame,
+            text="Multiple Longshot channels detected",
+            style="Heading.TLabel",
+        ).pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="Choose which Longshot installation OoT Randomizer should use:",
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).pack(anchor="w", pady=(4, 12))
+
+        default_key = default_channel if any(c["channel"] == default_channel for c in channels) else channels[0]["channel"]
+        selected_var = tk.StringVar(value=default_key)
+        for ch in channels:
+            lbl = ch["label"]
+            ver = ch["version_name"]
+            text = f"{lbl}  —  {ver}"
+            ttk.Radiobutton(
+                frame,
+                text=text,
+                value=ch["channel"],
+                variable=selected_var,
+            ).pack(anchor="w", pady=3)
+            ttk.Label(
+                frame,
+                text="    " + str(ch["mods_dir"]),
+                style="Small.TLabel",
+                wraplength=460,
+            ).pack(anchor="w", pady=(0, 6))
+
+        chosen = {"value": None}
+
+        def confirm(_event=None):
+            key = selected_var.get()
+            chosen["value"] = next((c for c in channels if c["channel"] == key), channels[0])
+            dlg.destroy()
+
+        def cancel(_event=None):
+            dlg.destroy()
+
+        btns = ttk.Frame(frame, style="Page.TFrame")
+        btns.pack(fill="x", pady=(12, 0))
+        ttk.Button(btns, text="Cancel", command=cancel).pack(side="right", padx=(8, 0))
+        ttk.Button(btns, text="Use Selected Channel", style="Accent.TButton", command=confirm).pack(side="right")
+
+        dlg.bind("<Return>", confirm)
+        dlg.bind("<Escape>", cancel)
+        dlg.protocol("WM_DELETE_WINDOW", cancel)
+        dlg.update_idletasks()
+        try:
+            rx = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - dlg.winfo_width()) // 2)
+            ry = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - dlg.winfo_height()) // 2)
+            dlg.geometry(f"+{rx}+{ry}")
+        except Exception:
+            pass
+        self._startup_modal_open = True
+        try:
+            dlg.grab_set()
+            self.root.wait_window(dlg)
+        finally:
+            self._startup_modal_open = False
+        return chosen["value"]
+
+    def _normalize_chosen_mods_dir(self, raw_path):
+        """Auto-resolve picked port root (v3.x.x) or Longshot channel root to its mods/ directory."""
+        from oot_rando import pc_port
+        norm = pc_port.normalize_port_mods_dir(raw_path)
+        if not norm:
+            return ""
+        p = Path(norm)
+        if p.name.upper() == TITLE or (p.name.lower() == "mods" and pc_port.is_port_folder(p.parent)):
+            return norm
+        info = pc_port.resolve_longshot_update(norm)
+        if info["status"] == "choose_channel":
+            chosen = self._prompt_longshot_channel(info["channels"], default_channel=info["current_channel"])
+            return str(chosen["mods_dir"]) if chosen is not None else ""
+        if info["recommended"] is not None:
+            return str(info["recommended"]["mods_dir"])
+        return norm
+
+    def _resolve_stale_mods_path(self, stale_mods):
+        """Resolve a deleted Longshot version mods path to the current valid installation if available."""
+        from oot_rando import pc_port
+        info = pc_port.resolve_longshot_update(stale_mods)
+        if info["status"] == "upgraded" and info["recommended"] is not None:
+            return str(info["recommended"]["mods_dir"])
+        if info["status"] == "choose_channel":
+            chosen = self._prompt_longshot_channel(info["channels"], default_channel=info["current_channel"])
+            if chosen is not None:
+                return str(chosen["mods_dir"])
+        return ""
+
+    def _reconcile_longshot_installation(self):
+        """Detect Longshot updates or multi-channel installs at startup and migrate Setup and Parties."""
+        from oot_rando import pc_port
+
+        candidates = []
+        cur_mods = self.mods.get().strip()
+        if cur_mods:
+            candidates.append(cur_mods)
+        if self.party_library and self.party_library.active_id:
+            try:
+                active = self.party_library.get(self.party_library.active_id)
+                if active.get("mods") and active["mods"] not in candidates:
+                    candidates.append(active["mods"])
+            except Exception:
+                pass
+
+        info = None
+        source_mods = ""
+        for cand in candidates:
+            probe = pc_port.resolve_longshot_update(cand)
+            if probe["status"] != "not_longshot":
+                info = probe
+                source_mods = cand
+                break
+
+        if info is None:
+            return ""
+
+        chosen = None
+        if info["status"] == "choose_channel":
+            chosen = self._prompt_longshot_channel(info["channels"], default_channel=info["current_channel"])
+            if chosen is None:
+                return ""
+        elif info["status"] == "upgraded":
+            chosen = info["recommended"]
+        else:
+            # Even when Setup already points at v3.2.0, migrate any leftover stale parties under the same root.
+            if self.party_library is not None and info["recommended"] is not None:
+                try:
+                    migrated = self.party_library.migrate_mods_directory(
+                        str(info["recommended"]["mods_dir"]),
+                        root=info["root"],
+                    )
+                    if migrated:
+                        self.render_parties()
+                except Exception:
+                    pass
+            return ""
+
+        new_mods = str(chosen["mods_dir"])
+        migrated = []
+        if self.party_library is not None:
+            try:
+                migrated = self.party_library.migrate_mods_directory(
+                    new_mods,
+                    old_mods=source_mods,
+                    root=info["root"],
+                )
+            except Exception:
+                migrated = []
+
+        self.mods.set(new_mods)
+        cur_nup = self.nup.get().strip()
+        if cur_nup and not Path(cur_nup).is_file():
+            found_nup = pc_port.resolve_stale_nup_path(cur_nup, new_mods, longshot_root=info.get("root"))
+            if found_nup is not None:
+                self.nup.set(str(found_nup))
+        cur_save = self.save_path.get().strip()
+        if cur_save and not Path(cur_save).exists():
+            found_save = pc_port.resolve_stale_port_subpath(cur_save, source_mods, new_mods)
+            if found_save is not None:
+                self.save_path.set(str(found_save))
+            elif self.auto_save.get():
+                self.save_path.set("")
+        if migrated:
+            self.render_parties()
+
+        old_ver = Path(source_mods).parent.name if source_mods else ""
+        old_chan = info.get("current_channel") or ""
+        old_desc = f"{old_chan}/{old_ver}".strip("/") if old_ver else source_mods
+        new_desc = chosen["channel"] + "/" + chosen["version_name"]
+        noun = 'party' if len(migrated) == 1 else 'parties'
+        extra = f" (migrated {len(migrated)} {noun})" if migrated else ""
+        return f"Longshot updated: {old_desc} → {new_desc}{extra}."
+
     def restore_last_artifact(self):
+        ls_notice = self._reconcile_longshot_installation()
         if self.restore_party():
+            if ls_notice:
+                cur_status = self.status.get()
+                self.status.set(ls_notice + ("  " + cur_status if cur_status else ""))
             return
+        if ls_notice:
+            self.status.set(ls_notice)
         last = self.app_state.get('last_artifact')
         if not last or self.artifact or not (Path(last) / 'manifest.json').is_file():
             return
+        prefix = (ls_notice + "  ") if ls_notice else ""
         try:
             self.use_artifact(last)
-            self.status.set('Last seed reloaded: ' + Path(last).name)
+            self.status.set(prefix + "Last seed reloaded: " + Path(last).name)
         except Exception as error:
-            self.status.set('Last seed not reloaded: ' + str(error))
+            self.status.set(prefix + "Last seed not reloaded: " + str(error))
 
     # ---------------------------------------------------------- saves
     def hookshot_root(self):
@@ -1162,7 +1421,7 @@ class Application(PartiesPage):
             self.refresh_tracker()
 
     def choose_save(self):
-        value = filedialog.askopenfilename(title='Choose the save of this game', filetypes=[('Hookshot progress', 'progress.sav'), ('Saves', '*.sav')])
+        value = filedialog.askopenfilename(title='Choose the save of this game', initialdir=self.save_path.get().strip(), filetypes=[('Hookshot progress', 'progress.sav'), ('Saves', '*.sav')], parent=getattr(self, 'root', None))
         if value:
             # A save picked by hand is kept: stop following the newest one.
             self.auto_save.set(False)
@@ -1188,7 +1447,7 @@ class Application(PartiesPage):
         if self.closed:
             return
         if self.busy:
-            self.root.after(1000, self.tracker_tick)
+            self._schedule_after(1000, self.tracker_tick)
             return
         try:
             if self.auto_save.get():
@@ -1199,7 +1458,7 @@ class Application(PartiesPage):
             self.refresh_tracker()
         if self.turbo and self.turbo.last_hold:
             self.turbo_status.set(self.turbo.status + ' — last: ' + self.turbo.last_hold)
-        self.root.after(1000, self.tracker_tick)   # live memory: ~1 s; the save path is cheap to stat
+        self._schedule_after(1000, self.tracker_tick)   # live memory: ~1 s; the save path is cheap to stat
 
     def refresh_tracker(self):
         if self.busy or not self.tracker or self.tracker_refreshing:
@@ -1297,7 +1556,7 @@ class Application(PartiesPage):
         self.update_category_states()
 
     def import_ap_yaml(self):
-        name = filedialog.askopenfilename(filetypes=[('Archipelago YAML', '*.yaml *.yml')])
+        name = filedialog.askopenfilename(title='Import Archipelago YAML', filetypes=[('Archipelago YAML', '*.yaml *.yml')], parent=getattr(self, 'root', None))
         if name:
             try:
                 values, ignored = rando_options.from_ap_yaml(Path(name).read_text(encoding='utf-8'))
@@ -1315,7 +1574,7 @@ class Application(PartiesPage):
     def export_ap_yaml(self):
         try:
             values = rando_options.validate(self.full_values())
-            name = filedialog.asksaveasfilename(defaultextension='.yaml', filetypes=[('Archipelago YAML', '*.yaml')])
+            name = filedialog.asksaveasfilename(title='Export Archipelago YAML', defaultextension='.yaml', filetypes=[('Archipelago YAML', '*.yaml')], parent=getattr(self, 'root', None))
             if name:
                 Path(name).write_text(rando_options.to_ap_yaml(values, open_forest=self.options['open_forest'].get()),
                                       encoding='utf-8')
@@ -1334,8 +1593,8 @@ class Application(PartiesPage):
             if not player:
                 return
             text = bridge.player_yaml(values, self.options['open_forest'].get(), player)
-            name = filedialog.asksaveasfilename(defaultextension='.yaml', initialfile=f'{player}.yaml',
-                                                filetypes=[('Archipelago YAML', '*.yaml')])
+            name = filedialog.asksaveasfilename(title='Export Multiworld YAML', defaultextension='.yaml', initialfile=f'{player}.yaml',
+                                                filetypes=[('Archipelago YAML', '*.yaml')], parent=getattr(self, 'root', None))
             if name:
                 Path(name).write_text(text, encoding='utf-8')
                 self.status.set('Multiworld YAML exported.')
@@ -1350,8 +1609,8 @@ class Application(PartiesPage):
             nup = Path(self.nup.get())
             if not nup.is_file():
                 raise ValueError('Select the local NUP file.')
-            name = filedialog.asksaveasfilename(defaultextension='.apworld', initialfile='oot_remake.apworld',
-                                                filetypes=[('Archipelago world', '*.apworld')])
+            name = filedialog.asksaveasfilename(title='Export Archipelago World', defaultextension='.apworld', initialfile='oot_remake.apworld',
+                                                filetypes=[('Archipelago world', '*.apworld')], parent=getattr(self, 'root', None))
             if not name:
                 return
 
@@ -1366,7 +1625,7 @@ class Application(PartiesPage):
     def generate_from_patch(self):
         from oot_rando.archipelago import bridge
         try:
-            name = filedialog.askopenfilename(filetypes=[('Archipelago patch', '*' + bridge.PATCH_SUFFIX)])
+            name = filedialog.askopenfilename(title='Choose Archipelago Patch', filetypes=[('Archipelago patch', '*' + bridge.PATCH_SUFFIX)], parent=getattr(self, 'root', None))
             if not name:
                 return
             settings = bridge.settings_from_patch(
@@ -1444,7 +1703,7 @@ class Application(PartiesPage):
             self.error(error)
 
     def import_settings(self):
-        name = filedialog.askopenfilename(filetypes=[('JSON settings', '*.json')])
+        name = filedialog.askopenfilename(title='Import Settings', filetypes=[('JSON settings', '*.json')], parent=getattr(self, 'root', None))
         if name:
             try:
                 value = json.loads(Path(name).read_text(encoding='utf-8'))
@@ -1458,7 +1717,7 @@ class Application(PartiesPage):
     def export_settings(self):
         try:
             settings = self.get_settings()
-            name = filedialog.asksaveasfilename(defaultextension='.json', filetypes=[('JSON settings', '*.json')])
+            name = filedialog.asksaveasfilename(title='Export Settings', defaultextension='.json', filetypes=[('JSON settings', '*.json')], parent=getattr(self, 'root', None))
             if name:
                 Path(name).write_text(json.dumps({'format': 'oot-remake-settings-v1', 'settings': settings.to_dict()}, ensure_ascii=False, indent=2), encoding='utf-8')
                 self.status.set('Settings exported.')
@@ -1488,7 +1747,10 @@ class Application(PartiesPage):
             settings.validate_supported()
             nup = Path(self.nup.get())
             if not nup.is_file():
-                raise ValueError('Select the local NUP file.')
+                raise ValueError("Select the local NUP file.")
+            if self._using_real_generator():
+                from oot_rando.randomizer.randomizer_services import validate_nup_file
+                validate_nup_file(nup)
             mods = validate_mod_directory(self.mods.get())
             self.start_generation(nup, mods, settings)
         except Exception as error:
@@ -1499,10 +1761,14 @@ class Application(PartiesPage):
         try:
             settings = self.regen_settings
             if settings is None or self.artifact is None:
-                raise ValueError('This seed is already up to date.')
+                raise ValueError("This seed is already up to date.")
+            settings.validate_supported()
             nup = Path(self.nup.get())
             if not nup.is_file():
-                raise ValueError('Select the local NUP file.')
+                raise ValueError("Select the local NUP file.")
+            if self._using_real_generator():
+                from oot_rando.randomizer.randomizer_services import validate_nup_file
+                validate_nup_file(nup)
             mods = validate_mod_directory(self.artifact.parent)
             if not messagebox.askyesno(
                     'Regenerate the seed',
@@ -1527,7 +1793,16 @@ class Application(PartiesPage):
         the player agrees, and each save is backed up first (tracker/save_patch.py)."""
         from oot_rando.tracker import save_patch
         try:
-            paths = (list(Path(self.party_context['saves']).glob('slot_*/progress.sav')) if self.party_context
+            from oot_rando.tracker.auto_tracker import resolve_party_save_root
+            party_saves = None
+            if self.party_context:
+                rec_saves = Path(self.party_context["saves"])
+                party_saves = (
+                    rec_saves
+                    if rec_saves.is_dir()
+                    else resolve_party_save_root(rec_saves, mods=self.party_context.get("mods"))
+                )
+            paths = (list(party_saves.glob("slot_*/progress.sav")) if party_saves is not None
                      else find_save_slots(self.hookshot_root(), TITLE, self.mods.get() or None))
             candidates = save_patch.migration_candidates(paths, manifest, previous)
         except Exception as error:   # never block the installation on a save scan
@@ -1601,10 +1876,18 @@ class Application(PartiesPage):
         self.reset_spoiler()
         self.status.set('Seed opened.')
 
+    def _on_mods_dir_changed(self, *_args) -> None:
+        """Persist mods_dir edits."""
+        self.write_app_state(mods_dir=self.mods.get())
+
     def open_artifact(self):
         if self.busy:
             return
-        directory = filedialog.askdirectory(title='Choose the folder holding manifest.json')
+        directory = filedialog.askdirectory(
+            title="Choose the folder holding manifest.json",
+            initialdir=self.mods.get().strip(),
+            parent=getattr(self, "root", None),
+        )
         if directory:
             try:
                 self.use_artifact(directory)
@@ -1613,7 +1896,7 @@ class Application(PartiesPage):
 
     def open_folder(self):
         if self.artifact:
-            os.startfile(str(self.artifact))
+            open_in_file_manager(self.artifact)
 
     def show_spoilers(self):
         self.show_page('spoiler')
@@ -1750,8 +2033,8 @@ class Application(PartiesPage):
     def export_spoiler(self):
         try:
             report = self.load_spoiler_report()
-            name = filedialog.asksaveasfilename(defaultextension='.txt', filetypes=[('Text', '*.txt')],
-                                                initialfile='spoiler_' + (report['seed'] or report['seed_id'][:16]) + '.txt')
+            name = filedialog.asksaveasfilename(title='Export Spoiler Log', defaultextension='.txt', filetypes=[('Text', '*.txt')],
+                                                initialfile='spoiler_' + (report['seed'] or report['seed_id'][:16]) + '.txt', parent=getattr(self, 'root', None))
             if name:
                 spoiler_report.write_text(report, name)
                 self.status.set('Spoiler exported: ' + name)
@@ -1765,7 +2048,7 @@ class Application(PartiesPage):
             if not path.is_file():
                 # Seeds generated before spoiler.txt existed: create it next to spoiler.json.
                 spoiler_report.write_text(report, path)
-            os.startfile(str(path))
+            open_in_file_manager(path)
         except Exception as error:
             self.error(error)
 
@@ -2224,7 +2507,7 @@ class Application(PartiesPage):
                             self.error(error)
         except queue.Empty:
             pass
-        self.root.after(100, self.poll)
+        self._schedule_after(100, self.poll)
 
     def save_extra_emulators(self):
         text = self.extra_emulators.get().strip()
@@ -2316,6 +2599,7 @@ class Application(PartiesPage):
             self.ap_client.stop()
         self.save_extra_emulators()
         self.closed = True
+        self._cancel_all_after()
         self.root.destroy()
         return True
 

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from functools import wraps
 import hashlib
 import json
+import logging
 from pathlib import Path
 import os
 import shutil
@@ -18,6 +19,8 @@ import uuid
 from oot_rando.paths import app_dir
 from oot_rando.randomizer.randomizer_services import read_artifact, validate_mod_directory, is_randomizer_seed
 from oot_rando.tracker.save_patch import GameRunning, running_game
+
+_LOG = logging.getLogger(__name__)
 
 
 def _write(path, value):
@@ -46,14 +49,17 @@ def _plain_tree(path):
 
 
 def _copy(source, destination):
+    from oot_rando.path_safety import fs_path, validate_file_path
     _plain_tree(source)
-    shutil.copytree(source, destination)
-    # Verify all files, including the save's ancillary files and AP delivery state.
-    for original in Path(source).rglob('*'):
+    shutil.copytree(fs_path(source), fs_path(destination))
+    # Verify all files, including ancillary save files and AP delivery state.
+    for original in Path(source).rglob("*"):
         if original.is_file():
-            copied = destination / original.relative_to(source)
-            if hashlib.sha256(original.read_bytes()).digest() != hashlib.sha256(copied.read_bytes()).digest():
-                raise OSError('Copy verification failed: ' + str(original))
+            copied = Path(destination) / original.relative_to(source)
+            validate_file_path(copied, label="Party file")
+            with open(fs_path(original), "rb") as f_orig, open(fs_path(copied), "rb") as f_copy:
+                if hashlib.sha256(f_orig.read()).digest() != hashlib.sha256(f_copy.read()).digest():
+                    raise OSError("Copy verification failed: " + str(original))
 
 
 def _hashes(directory):
@@ -148,9 +154,14 @@ class PartyLibrary:
         return value
 
     def list(self):
-        return sorted((self.get(p.name) for p in self.root.iterdir()
-                       if p.is_dir() and (p / 'party.json').is_file()),
-                      key=lambda p: (p['id'] != self.active_id, p['name'].casefold()))
+        entries = []
+        for child in self.root.iterdir():
+            if child.is_dir() and (child / 'party.json').is_file():
+                try:
+                    entries.append(self.get(child.name))
+                except Exception as exc:
+                    _LOG.debug("Skipping invalid party folder %s: %s", child.name, exc, exc_info=True)
+        return sorted(entries, key=lambda p: (p['id'] != self.active_id, p['name'].casefold()))
 
     def bundle(self, party):
         revision = party['revision']
@@ -163,19 +174,82 @@ class PartyLibrary:
 
     def _closed(self):
         processes = None
-        if os.name != 'nt':
-            processes = subprocess.check_output(['ps', '-axo', 'comm='], text=True).splitlines()
+        if os.name != "nt":
+            try:
+                processes = subprocess.check_output(["ps", "-axo", "comm="], text=True).splitlines()
+            except (OSError, subprocess.SubprocessError):
+                processes = []
         game = running_game(processes)
         if game:
-            raise GameRunning(f'Save and close the game / emulator first ({game} is running).')
+            raise GameRunning(f"Save and close the game / emulator first ({game} is running).")
 
     def _targets(self, mods, saves):
+        from oot_rando.path_safety import SAVE_ACCOUNT_HEADROOM, SEED_ROMFS_HEADROOM, validate_path_headroom
         _plain_tree(mods)
         mods = validate_mod_directory(mods)
         saves = validate_save_root(saves)
+        validate_path_headroom(mods, max_relative_len=SEED_ROMFS_HEADROOM, label="Mods folder")
+        validate_path_headroom(saves, max_relative_len=SAVE_ACCOUNT_HEADROOM, label="Save account folder")
+        validate_path_headroom(self.root, max_relative_len=195, label="Parties library folder", enforce_win_classic=False)
         for a, b in ((mods, saves), (mods, self.root), (saves, self.root)):
             if a == b or a in b.parents or b in a.parents:
-                raise ValueError('The library, mods and save folders must be separate.')
+                raise ValueError("The library, mods and save folders must be separate.")
+        return mods, saves
+
+    @_operation
+    def preflight_generation(self, name, mods, saves, settings, *, continuing=False):
+        "Run every party creation & activation sanity check BEFORE generating a seed."
+        from oot_rando.randomizer.randomizer_core import Settings, settings_identity
+        from oot_rando.randomizer.randomizer_services import qol_seed_warning
+        self._closed()
+        self._name(name)
+        mods, saves = self._targets(mods, saves)
+        outgoing = self.get(self.active_id) if self.active_id else None
+        if continuing:
+            if not self.active_id or outgoing is None:
+                raise ValueError("There is no active party to continue.")
+            old_manifest, _ = read_artifact(self.bundle(outgoing) / "seed")
+            if (Path(outgoing["mods"]) != mods or Path(outgoing["saves"]) != saves
+                    or Settings.from_dict(old_manifest["settings"]).to_dict() != Settings.from_dict(settings.to_dict()).to_dict()):
+                raise ValueError("Only a regeneration with the same settings can continue the active save.")
+        if outgoing and Path(outgoing["mods"]).exists():
+            out_seed = Path(outgoing["mods"]) / outgoing["mod_name"]
+            if out_seed.exists():
+                out_manifest, _ = read_artifact(out_seed)
+                if out_manifest.get("seed_id") != outgoing["seed_id"]:
+                    raise ValueError("The installed seed changed outside My Games. Restore it before switching.")
+            else:
+                snap_seed = self.bundle(outgoing) / "seed"
+                snap_manifest, _ = read_artifact(snap_seed)
+                if snap_manifest.get("seed_id") != outgoing["seed_id"]:
+                    raise ValueError("The stored seed belongs to another party.")
+        owned_mod = Path(outgoing["mods"]) / outgoing["mod_name"] if outgoing else None
+        if mods.exists():
+            for path in mods.iterdir():
+                if is_randomizer_seed(path) and path != owned_mod:
+                    raise ValueError("An unmanaged seed is installed here. Preserve it as a party first.")
+        owns_save = bool(outgoing and Path(outgoing["saves"]) == saves)
+        if saves.exists() and any(saves.iterdir()) and not owns_save:
+            raise ValueError(
+                "This destination already contains saves. Preserve its installed game first "
+                "or choose an empty save account folder."
+            )
+        if qol_seed_warning(mods):
+            raise ValueError("Move OoT_QoL out of this mods folder before activating a randomizer party.")
+        target_mod = mods / ("OoT_Randomizer_" + settings_identity(settings)[:16])
+        if target_mod.exists() and target_mod != owned_mod:
+            raise ValueError("The target mod folder already exists and is not managed by this party.")
+        repl_paths = []
+        if outgoing:
+            if Path(outgoing["mods"]).exists() and owned_mod is not None:
+                repl_paths.append(owned_mod)
+            if Path(outgoing["saves"]).exists():
+                repl_paths.append(Path(outgoing["saves"]))
+        for p in (target_mod, saves):
+            if p not in repl_paths:
+                repl_paths.append(p)
+        if any(a in b.parents or b in a.parents for i, a in enumerate(repl_paths) for b in repl_paths[i + 1:]):
+            raise ValueError("Party destinations overlap. Choose separate save accounts and mods folders.")
         return mods, saves
 
     def _name(self, name, ident=None):
@@ -202,7 +276,8 @@ class PartyLibrary:
                            updated=datetime.now(timezone.utc).isoformat())
             _write(self.folder(party['id']) / 'party.json', updated)
         except Exception:
-            shutil.rmtree(destination)
+            from oot_rando.path_safety import fs_path
+            shutil.rmtree(fs_path(destination))
             raise
         # Once the pointer is committed, cleanup must never remove that snapshot.
         previous = party.get('revision')
@@ -300,15 +375,61 @@ class PartyLibrary:
         party['ap_address'] = address.strip()
         _write(self.folder(ident) / 'party.json', party)
 
+
+    @_operation
+    def migrate_mods_directory(self, new_mods, *, old_mods=None, root=None, restore_active_seed=True):
+        """Rewrite parties pointing at an old/missing Longshot version to ``new_mods``."""
+        from oot_rando.pc_port import longshot_layout_root
+
+        target_mods = validate_mod_directory(new_mods)
+        target_norm = os.path.normcase(os.path.abspath(str(target_mods)))
+        old_norm = os.path.normcase(os.path.abspath(str(old_mods))) if old_mods else ""
+        target_root = None
+        if root:
+            target_root = Path(root).resolve()
+        else:
+            lay = longshot_layout_root(target_mods)
+            if lay is not None:
+                target_root = lay[0].resolve()
+
+        migrated = []
+        active_id = self.active_id
+        for party in self.list():
+            p_mods = os.path.abspath(str(party["mods"]))
+            p_norm = os.path.normcase(p_mods)
+            if p_norm == target_norm:
+                continue
+            should_migrate = bool(old_norm and p_norm == old_norm)
+            if not should_migrate and target_root is not None:
+                p_lay = longshot_layout_root(p_mods)
+                if p_lay is not None and p_lay[0].resolve() == target_root and not Path(p_mods).exists():
+                    should_migrate = True
+            if not should_migrate:
+                continue
+            updated = dict(party, mods=str(target_mods))
+            _write(self.folder(party["id"]) / "party.json", updated)
+            migrated.append(party["name"])
+            if restore_active_seed and party["id"] == active_id:
+                live_seed = target_mods / party["mod_name"]
+                snap_seed = self.bundle(updated) / "seed"
+                has_other_seed = target_mods.is_dir() and any(
+                    is_randomizer_seed(p) for p in target_mods.iterdir()
+                )
+                has_merged = (target_mods / "Merged_Zelda_Rando").is_dir()
+                if snap_seed.is_dir() and not live_seed.exists() and not has_other_seed and not has_merged:
+                    target_mods.mkdir(parents=True, exist_ok=True)
+                    _copy(snap_seed, live_seed)
+        return migrated
+
     @_operation
     def delete(self, ident):
         if ident == self.active_id:
             raise ValueError('Activate another party before deleting this one.')
         self.get(ident)
         # Reversible removal: retained beside the library, outside the displayed list.
-        trash = self.root / '.deleted'
+        trash = self.root / ".deleted"
         trash.mkdir(exist_ok=True)
-        self.folder(ident).rename(trash / (ident + '-' + uuid.uuid4().hex))
+        self.folder(ident).rename(trash / (ident + "-" + uuid.uuid4().hex[:8]))
 
     @_operation
     def activate(self, ident, ap_address=None):
@@ -344,14 +465,25 @@ class PartyLibrary:
         from oot_rando.randomizer.randomizer_services import qol_seed_warning
         if qol_seed_warning(mods):
             raise ValueError('Move OoT_QoL out of this mods folder before activating a randomizer party.')
+        outgoing_mods_missing = bool(outgoing and not Path(outgoing['mods']).exists())
         if outgoing:
-            outgoing = self.refresh(ap_address)
+            if outgoing_mods_missing:
+                # Outgoing port folder was removed (e.g. Longshot version update); archive saves
+                # with the existing party snapshot seed so switching does not fail on missing old mods.
+                if ap_address is not None:
+                    outgoing['ap_address'] = ap_address
+                out_saves = Path(outgoing['saves'])
+                outgoing = self._snapshot(outgoing, self.bundle(outgoing) / 'seed', out_saves if out_saves.is_dir() else None)
+            else:
+                outgoing = self.refresh(ap_address)
         # One transaction can exchange two distinct destinations. Outgoing destinations
         # are emptied only after being archived, so every installed pair has one owner.
         replacements = {}
         if outgoing:
-            replacements[Path(outgoing['mods']) / outgoing['mod_name']] = None
-            replacements[Path(outgoing['saves'])] = None
+            if not outgoing_mods_missing:
+                replacements[Path(outgoing['mods']) / outgoing['mod_name']] = None
+            if Path(outgoing['saves']).exists():
+                replacements[Path(outgoing['saves'])] = None
         replacements[mods / target['mod_name']] = incoming / 'seed'
         replacements[saves] = incoming / 'save'
         paths = list(replacements)
