@@ -10,6 +10,7 @@ from oot_rando.logic.world import World
 from oot_rando.logic.rules import Logic
 from oot_rando.logic import rando_options
 from oot_rando.randomizer import full_randomizer
+from oot_rando.formats.evfl_tools import parse_flow
 
 GID = 'Market#16881481538337649070'
 LOCATION = 'Market Treasure Chest Game Reward'
@@ -87,7 +88,6 @@ class GameData(unittest.TestCase):
         from oot_rando.formats.byml_writer import patch_strings
         from oot_rando.formats.inspect_resources import Byml
         from oot_rando.patching import chest_flags
-        from oot_rando.patching.event_patch import _flow
         self.assertIn(GID, self.groups)
         self.assertEqual([g for g in self.groups if g.startswith('Market#')], [GID])
         data = World()
@@ -112,7 +112,7 @@ class GameData(unittest.TestCase):
         self.assertEqual(skipped, {})
         self.assertEqual((records[0]['base'], records[0]['flow']), (EVENT, FLOW))
         raw = chest_flags.add_entries(self.read(FLOW), records)
-        chart = _flow(raw).flowchart
+        chart = parse_flow(raw).flowchart
         wrapper = next(e for e in chart.entry_points if e.name == records[0]['event'])
         self.assertEqual(wrapper.main_event.v.data.nxt.v.data.entry_point_name,
                          'MiniGame_SequentialChoiceTreasure_OpenClearTreasureBox')

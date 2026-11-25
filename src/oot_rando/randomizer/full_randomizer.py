@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from oot_rando.logic.rules import Logic, age_member, vanilla_placements
 from oot_rando.logic import rando_options
+from oot_rando.logic.rando_options import ap_settings  # noqa: F401  (moved to logic, re-exported)
 from oot_rando.game.remake_world import (PROGRESSIVE, BASE_REQUIRED, STATIC_TIER_SOURCES, static_tier_gid, item_actor,
                           match_locations, coverage_summary, FOLDER_DUNGEON,
                           ZONE_LABELS, TRACKED_TYPES, location_zone, source_age, zone_label,
@@ -231,25 +232,6 @@ class DetRandom:
 
 def vname(group_id):
     return 'Remake|' + group_id
-
-
-def ap_settings(options, open_forest):
-    values = {name: options[name] for name in ('open_kakariko', 'open_door_of_time', 'door_of_time_requirement', 'zora_fountain',
-                                               'spiritual_stones', 'gerudo_fortress', 'open_gerudo_valley_bridge',
-                                               'starting_age', 'bridge', 'trials',
-                                               'shuffle_ganon_bosskey', 'big_poe_count', 'chicken_count',
-                                               'free_scarecrow', 'shuffle_child_trade', 'logic_rules',
-                                               'shuffle_master_sword', 'shuffle_gerudo_card',
-                                               'logic_no_night_tokens_without_suns_song',
-                                               'skip_child_zelda')}
-    values['open_forest'] = 'closed_deku' if open_forest else 'closed'
-    # AP rules' ``keysanity``: false lets one Fire Temple door open without its key
-    # ("Fire Temple Lower Locked Door": (Small Key, 8) or not keysanity), OoTR's
-    # "a vanilla key may sit behind its own door". Shuffled small keys are key rings
-    # here (one item, every key at once): the ring itself could go behind that door
-    # (Discord 16/11: Fire Temple ring on Volvagia, boss key chest past the door).
-    values['keysanity'] = options.get('shuffle_smallkeys', 'vanilla') != 'vanilla'
-    return values
 
 
 # Ring-dungeon spots checked in game as reachable without any key (remake_world.KNOWN_CHEST_GROUPS).
@@ -1061,7 +1043,7 @@ def covered_locations(entry, gid):
     return covered
 
 
-def _entry_zone(data, entry, gid):
+def entry_zone(data, entry, gid):
     if entry['ap'] and (entry['kind'] in ('exact', 'group') or entry['folder'] not in ZONE_LABELS):
         return location_zone(data, entry['ap'][0])
     if entry['folder'] in ZONE_LABELS:
@@ -1081,7 +1063,7 @@ def tracker_checks(data, matches, shuffled):
         entry = matches[gid]
         source = entry.get('source', 'chest')
         covered.update(covered_locations(entry, gid))
-        zone = _entry_zone(data, entry, gid)
+        zone = entry_zone(data, entry, gid)
         if entry['kind'] == 'exact' and entry['ap']:
             from oot_rando.game.check_names import _LABEL_OVERRIDES
             name = _LABEL_OVERRIDES.get(entry['ap'][0], entry['ap'][0])

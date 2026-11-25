@@ -23,7 +23,7 @@ class F64(float):
     pass
 
 
-def _c_string(data, start):
+def c_string(data, start):
     """NUL-terminated string at ``start`` (to the end of ``data`` without a terminator).
 
     Never slices the rest of the buffer first: string tables hold thousands of
@@ -48,7 +48,7 @@ def load(data):
     def table(off):
         if not off:
             return []
-        return [_c_string(data, off + u32(off + 4 + i * 4)) for i in range(u24(off + 1))]
+        return [c_string(data, off + u32(off + 4 + i * 4)) for i in range(u24(off + 1))]
 
     keys, strings = table(u32(4)), table(u32(8))
 

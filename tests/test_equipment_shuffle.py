@@ -3,6 +3,7 @@ import _src_path  # noqa: F401
 import os
 import unittest
 
+from oot_rando.archipelago.bridge import to_ap_yaml
 from oot_rando.logic import rando_options
 from oot_rando.randomizer.full_randomizer import enabled_sources
 from oot_rando.game.remake_world import actor_item, item_actor
@@ -16,7 +17,7 @@ class EquipmentOptions(unittest.TestCase):
                 self.assertFalse(rando_options.defaults()[name])
                 options = rando_options.validate({name: True}, supported_only=True)
                 self.assertEqual(enabled_sources(options), {source: 'all'})
-                restored, ignored = rando_options.from_ap_yaml(rando_options.to_ap_yaml(options))
+                restored, ignored = rando_options.from_ap_yaml(to_ap_yaml(options))
                 self.assertEqual(ignored, [])
                 self.assertEqual(restored, options)
                 self.assertTrue(rando_options.preset('everything')[name])

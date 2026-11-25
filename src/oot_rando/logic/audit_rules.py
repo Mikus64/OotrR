@@ -322,11 +322,10 @@ def run_audit(data, maps, groups, extra, options=None, without_fixes=False, matc
     """
     from oot_rando.logic import rando_options
     from oot_rando.logic.rules import Logic
-    from oot_rando.randomizer.full_randomizer import ap_settings
     options = dict(options or rando_options.defaults(), chest_matching=matching)
     options = rando_options.validate(options, supported_only=True)
     with _without_remake_fixes(without_fixes):
-        logic = Logic(data, ap_settings(options, True))
+        logic = Logic(data, rando_options.ap_settings(options, True))
     oracle = Oracle(data, logic)
     points = hint_points(maps)
     report = []

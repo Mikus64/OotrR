@@ -26,9 +26,9 @@ from pathlib import Path
 from oot_rando.formats.inspect_nup import Nup
 from oot_rando.formats.inspect_resources import Byml, decompress, dictionaries, sarc
 from oot_rando.game.world_maps import effective_members
-from oot_rando.randomizer.randomizer_services import read_artifact
+from oot_rando.randomizer.artifact import read_artifact
 from oot_rando.patching.randomize_kokiri import RESTBL, MAP
-from oot_rando.patching.qol_patches import (STATIC, KOKIRI_SHOP_MAPS, KOKIRI_SHOP_FLAG, _shop_actor,
+from oot_rando.patching.qol_patches import (STATIC, KOKIRI_SHOP_MAPS, KOKIRI_SHOP_FLAG, shop_actor,
                                             NOCTURNAL_FIELD, is_nocturnal_skulltula)
 from oot_rando.formats import byml_codec
 from oot_rando.patching.soul_adapter import murmur3, RSDB_FILES, GAMEDATA, FLAG_PREFIX
@@ -37,6 +37,7 @@ from oot_rando.game.item_forms import is_derived, canonical_of
 from oot_rando.patching.key_adapter import is_key_actor
 from oot_rando.patching.progressive import applied_flag, is_token
 from oot_rando.randomizer.randomizer_core import save_marker
+from oot_rando.formats.evfl_tools import links_to, params_by_event, parse_flow
 
 QOL_MAPS = {MAP, STATIC}
 
@@ -49,13 +50,11 @@ def _seed_lazy(actor):
 
 
 def _flow_events(raw):
-    from oot_rando.patching.event_patch import _flow
-    return _flow(raw).flowchart.events
+    return parse_flow(raw).flowchart.events
 
 
 def _event_snapshot(raw):
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    return _snapshot(_flow(raw))
+    return params_by_event(parse_flow(raw))
 
 
 def verify(nup_path, seed_dir):
@@ -403,7 +402,7 @@ def verify(nup_path, seed_dir):
                     raise ValueError('Unexpected Master Sword ownership guards: ' + path)
                 report['master_sword_flows'] = report.get('master_sword_flows', 0) + 1
             # Comfort patches, re-applied independently to the original flow.
-            from oot_rando.patching.qol_patches import AREA_PRESENTATIONS, CHEST_FLOW, add_skip_window, flow_path, quick_chest
+            from oot_rando.patching.qol_patches import AREA_PRESENTATIONS, CHEST_FLOW, flow_path, quick_chest
             skips = manifest.get('skips', {})
             if path in {flow_path(name) for name in skips.get('area_presentations', {})}:
                 if path not in {flow_path(name) for name in AREA_PRESENTATIONS}:
@@ -526,14 +525,13 @@ def verify(nup_path, seed_dir):
             gifts = skips.get('gift_get', {})
             if path in gifts:
                 # Cutscene whose own add is bypassed: never reached any more.
-                from oot_rando.patching.event_patch import _flow
-                from oot_rando.patching.qol_patches import GIFT_AFTER_CUTSCENE, _predecessors
+                from oot_rando.patching.qol_patches import GIFT_AFTER_CUTSCENE
                 spec, gift = GIFT_AFTER_CUTSCENE.get(path), gifts[path]
                 if spec is None or any(gift.get(key) != spec[key] for key in ('event', 'flow', 'after')):
                     raise ValueError('Unknown cutscene item hand-over: ' + path)
-                chart = _flow(out(path)).flowchart
+                chart = parse_flow(out(path)).flowchart
                 bypassed = next(e for e in chart.events if e.name == spec['event'])
-                if _predecessors(chart, bypassed):
+                if links_to(chart, bypassed):
                     raise ValueError('Cutscene item still added in the cutscene: ' + path)
                 report['gift_get'] = report.get('gift_get', 0) + 1
             for cutscene, gift in sorted(gifts.items()):
@@ -704,7 +702,7 @@ def verify(nup_path, seed_dir):
             index = indices[id(a)] if indices is not None else position
             a2, b2 = json.loads(json.dumps(a)), json.loads(json.dumps(b))
             shop_presence = a2.get('Presence') or {}
-            if path in KOKIRI_SHOP_MAPS and shop_presence.get('FlagName') == KOKIRI_SHOP_FLAG                     and _shop_actor(a2.get('Gyaml', '')):
+            if path in KOKIRI_SHOP_MAPS and shop_presence.get('FlagName') == KOKIRI_SHOP_FLAG                     and shop_actor(a2.get('Gyaml', '')):
                 # Kokiri shop opened from the start: full stock always, short stock hidden.
                 if shop_presence.get('IsNegation'):
                     shop_presence['FlagName'] = save_marker(manifest)

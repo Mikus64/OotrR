@@ -20,6 +20,7 @@ import copy
 import io
 
 from oot_rando.formats import byml_codec
+from oot_rando.formats.evfl_tools import params_by_event, parse_flow
 
 EVENT_SETTINGS = 'RSDB/EventSetting.Product.111.rstbl.byml.zs'
 ANALYZED = 'RSDB/GameAnalyzedEventInfo.Product.111.rstbl.byml.zs'
@@ -149,10 +150,10 @@ def add_entries(raw, records):
     from evfl.entry_point import EntryPoint
     from evfl.event import Event, ActionEvent, SubFlowEvent
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import GAMEDATA_ACTOR_PARAMS, _flow, _snapshot
-    flow = _flow(raw)
+    from oot_rando.patching.event_patch import GAMEDATA_ACTOR_PARAMS
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     entries = {e.name for e in chart.entry_points}
     events = {e.name for e in chart.events}
     actor = next((a for a in chart.actors if str(a.identifier) == 'GameDataActor'), None)
@@ -193,8 +194,8 @@ def add_entries(raw, records):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('Chest flags changed unrelated parameters.')
     written = {e.name: e for e in checked.flowchart.entry_points}
     for record in records:

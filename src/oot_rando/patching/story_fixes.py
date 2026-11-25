@@ -56,7 +56,8 @@ Bool switches: case 0 = true, case 1 = false (as the vanilla flows). Not validat
 import io
 from functools import partial
 
-from oot_rando.patching.event_patch import GAMEDATA_ACTOR_PARAMS, _flow, _snapshot
+from oot_rando.patching.event_patch import GAMEDATA_ACTOR_PARAMS
+from oot_rando.formats.evfl_tools import case_target, event_params_of, links_to, params_by_event, parse_flow
 
 FIRE_STONE_FLOW = 'Event/EventFlow/Get_StoneOfFire.bfevfl.zs'
 DARUNIA_GIFT_FLOW = 'Event/EventFlow/Dm_Goron_0030.bfevfl.zs'
@@ -99,9 +100,9 @@ class _Chart:
     """An event flow being edited: new events and the parameters they must keep."""
 
     def __init__(self, raw):
-        self.flow = _flow(raw)
+        self.flow = parse_flow(raw)
         self.chart = self.flow.flowchart
-        self.expected = _snapshot(self.flow)
+        self.expected = params_by_event(self.flow)
         self.events = {e.name: e for e in self.chart.events}
 
     def event(self, name, kind):
@@ -182,19 +183,10 @@ class _Chart:
         stream = io.BytesIO()
         self.flow.write(stream)
         result = stream.getvalue()
-        checked = _flow(result)
-        if _snapshot(checked) != self.expected:
+        checked = parse_flow(result)
+        if params_by_event(checked) != self.expected:
             raise ValueError('A story fix changed other parameters.')
         return result, {e.name: e for e in checked.flowchart.events}
-
-
-def _params(event):
-    return dict(event.data.params.data) if event.data.params is not None else {}
-
-
-def _case(event, key):
-    case = event.data.cases.get(key)
-    return case.v if case is not None else None
 
 
 def darunia_gift_after_dungeon(raw):
@@ -204,17 +196,17 @@ def darunia_gift_after_dungeon(raw):
     from evfl.util import make_index
     flow = _Chart(raw)
     check = flow.event('Event39', 'SwitchEvent')
-    gift, done = _case(check, 1), _case(check, 0)
-    if (_params(check) != {'GameDataName': AFTER_SARIA_PLAY} or gift is None or done is None
+    gift, done = case_target(check, 1), case_target(check, 0)
+    if (event_params_of(check) != {'GameDataName': AFTER_SARIA_PLAY} or gift is None or done is None
             or type(gift.data).__name__ != 'ActionEvent'
-            or _params(gift).get('EventName') != 'Dm_Goron_0030'):
+            or event_params_of(gift).get('EventName') != 'Dm_Goron_0030'):
         raise ValueError("Unexpected Darunia dance continuation.")
     given = flow.switch('RandoDaruniaGiftGiven', 'EventQueryIsGameDataBool',
                         {'GameDataName': DARUNIA_GIFT_PLAYED, 'Index': -1}, done, gift)
     check.data.cases[0] = make_index(given)
     prompt = flow.event('Event82', 'SwitchEvent')
-    late, early = _case(prompt, 0), _case(prompt, 1)
-    if (_params(prompt) != {'GameDataName': AFTER_SARIA_PLAY}
+    late, early = case_target(prompt, 0), case_target(prompt, 1)
+    if (event_params_of(prompt) != {'GameDataName': AFTER_SARIA_PLAY}
             or late is None or late.name != 'Event278'
             or early is None or early.name != 'Event193'):
         raise ValueError('Unexpected Darunia ocarina prompt dispatch.')
@@ -238,20 +230,19 @@ def keep_fire_quest_forward(raw):
     """``Dm_Goron_0030``: the step ``DodongoCavernOpne`` only while not already past it.
 
     Returns (bytes, report)."""
-    from oot_rando.patching.qol_patches import _predecessors
     from evfl.util import make_index
     flow = _Chart(raw)
     step = flow.event('Event121', 'ActionEvent')
     if (step.data.actor_action.v.v != 'EventExecuteProgressChallengeStep'
-            or _params(step).get('ChallengeName') != 'Get_StoneOfFire'
-            or _params(step).get('StepName') != 'DodongoCavernOpne'):
+            or event_params_of(step).get('ChallengeName') != 'Get_StoneOfFire'
+            or event_params_of(step).get('StepName') != 'DodongoCavernOpne'):
         raise ValueError('Unexpected Darunia gift step.')
     ui = step.data.nxt.v
     if (ui is None or type(ui.data).__name__ != 'ActionEvent'
             or ui.data.actor_action.v.v != 'EventTriggerShowChallengeProgressUI'):
         raise ValueError('Unexpected Darunia gift step continuation.')
     resume = ui.data.nxt.v
-    links = _predecessors(flow.chart, step)
+    links = links_to(flow.chart, step)
     if resume is None or len(links) != 1 or links[0][1] != 'nxt':
         raise ValueError('Unexpected Darunia gift step links.')
     guard = flow.switch('RandoFireQuestForward', 'EventQueryIsGameDataBoolExp',
@@ -271,9 +262,9 @@ def second_malon_after_talon(raw):
     from evfl.util import make_index
     flow = _Chart(raw)
     jabu = flow.event('Event38', 'SwitchEvent')
-    appear = _case(jabu, 1)
-    if (_params(jabu) != {'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'} or appear is None
-            or appear.name != 'Event36' or _params(appear) != {'GameDataName': SECOND_MALON, 'Value': True,
+    appear = case_target(jabu, 1)
+    if (event_params_of(jabu) != {'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'} or appear is None
+            or appear.name != 'Event36' or event_params_of(appear) != {'GameDataName': SECOND_MALON, 'Value': True,
                                                                  'Index': -1}):
         raise ValueError('Unexpected Malon second visit check.')
     away = flow.set_bool('RandoMalonNotYetBack', SECOND_MALON, False, None)
@@ -296,8 +287,8 @@ def open_bombchu_bowling(raw):
     from evfl.util import make_index
     flow = _Chart(raw)
     gate = flow.event('Event137', 'SwitchEvent')
-    opened, closed = _case(gate, 0), _case(gate, 1)
-    if (_params(gate) != {'GameDataName': 'Get_StoneOfFire_IsCompleted_Exp'} or opened is None
+    opened, closed = case_target(gate, 0), case_target(gate, 1)
+    if (event_params_of(gate) != {'GameDataName': 'Get_StoneOfFire_IsCompleted_Exp'} or opened is None
             or closed is None or opened is closed):
         raise ValueError('Unexpected Bombchu Bowling gate.')
     gate.data.cases[1] = make_index(opened)
@@ -315,10 +306,10 @@ def open_great_fairies(raw):
     from evfl.util import make_index
     flow = _Chart(raw)
     gate = flow.event('Event8', 'SwitchEvent')
-    called, refused = _case(gate, 0), _case(gate, 1)
+    called, refused = case_target(gate, 0), case_target(gate, 1)
     ability = flow.event('Event132', 'SwitchEvent')
-    if (_params(gate) != {'GameDataName': FAIRY_CALL_GATE, 'Index': -1} or called is None
-            or refused is None or called is refused or _case(ability, 2) is not called):
+    if (event_params_of(gate) != {'GameDataName': FAIRY_CALL_GATE, 'Index': -1} or called is None
+            or refused is None or called is refused or case_target(ability, 2) is not called):
         raise ValueError('Unexpected Great Fairy call gate.')
     gate.data.cases[1] = make_index(called)
     result, events = flow.write()
@@ -354,7 +345,6 @@ def _fairy_reward_flag(name, reward, actor):
     """``Dm_FairyFountain_<name>``: the fairy's flag set just before her reward; her
     item tests read it. Returns a fix ``raw -> (bytes, report)``."""
     def fix(raw):
-        from oot_rando.patching.qol_patches import _predecessors
         from evfl.util import make_index
         flow = _Chart(raw)
         gift = flow.event(reward, 'SubFlowEvent')
@@ -363,9 +353,9 @@ def _fairy_reward_flag(name, reward, actor):
                  and gift.data.entry_point_name.startswith('GetInEvent'))
         silent = (gift.data.res_flowchart_name, gift.data.entry_point_name) == (
             'GetPouchContent', 'GetPouchContentByActorName')
-        if not (posed or silent) or 'ActorName' not in _params(gift):
+        if not (posed or silent) or 'ActorName' not in event_params_of(gift):
             raise ValueError('Unexpected Great Fairy reward: ' + name)
-        links = _predecessors(flow.chart, gift)
+        links = links_to(flow.chart, gift)
         if not links or any(kind == 'entry' for _, kind, _ in links):
             raise ValueError('Unexpected Great Fairy reward links: ' + name)
         flag = GREAT_FAIRY_FLAG_PREFIX + name
@@ -593,7 +583,7 @@ def zelda_escape_on_item_get(raw, stones):
     first = entry.main_event.v
     entry.main_event = make_index(_stone_check(flow, 'RandoDoorStones', stones, first))
     result, events = flow.write()
-    start = {e.name: e for e in _flow(result).flowchart.entry_points}['ActionGuide'].main_event.v
+    start = {e.name: e for e in parse_flow(result).flowchart.entry_points}['ActionGuide'].main_event.v
     if start.name != 'RandoDoorStonesStarted' or events['RandoDoorStonesCount'].data.nxt.v.name != first.name:
         raise ValueError('Stone check wrongly chained in ActionGuide.')
     return result, {'flow': ACTION_GUIDE_FLOW, 'start': start.name, 'stones': list(stones)}
@@ -604,7 +594,6 @@ def zelda_escape_door_flow(raw, stones=STONE_SETS['all']):
 
     Returns (bytes, report)."""
     from evfl.util import make_index
-    from oot_rando.patching.qol_patches import _predecessors
     flow = _Chart(raw)
     entries = {e.name: e for e in flow.chart.entry_points}
     native = entries.get('DoorOfTime_CheckStoneNum')
@@ -620,16 +609,16 @@ def zelda_escape_door_flow(raw, stones=STONE_SETS['all']):
     # open it (Discord 17/11: escape and Temple of Time without the Goron Ruby).
     both = flow.event('Event39', 'SwitchEvent')
     step03 = flow.event('Event37', 'ActionEvent')
-    if (_params(both) != {'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'}
+    if (event_params_of(both) != {'GameDataName': 'Get_StoneOfWater_IsCompleted_Exp'}
             or getattr(both.data.cases.get(0), 'v', None) is not step03
-            or _params(step03).get('StepName') != 'Step03' or len(_predecessors(flow.chart, step03)) != 1):
+            or event_params_of(step03).get('StepName') != 'Step03' or len(links_to(flow.chart, step03)) != 1):
         raise ValueError('Unexpected native DoorOfTime Step03.')
     del both.data.cases[0]
     # Send-off: Step02 (Event7), then Get_StoneOfFire KakarikoVillageNpc (Event62), end.
     step02, fire = flow.event('Event7', 'ActionEvent'), flow.event('Event62', 'ActionEvent')
-    if (_params(step02).get('StepName') != 'Step02' or step02.data.nxt.v is not fire
-            or _params(fire).get('StepName') != 'KakarikoVillageNpc'
-            or getattr(fire.data.nxt, 'v', None) is not None or len(_predecessors(flow.chart, fire)) != 1):
+    if (event_params_of(step02).get('StepName') != 'Step02' or step02.data.nxt.v is not fire
+            or event_params_of(fire).get('StepName') != 'KakarikoVillageNpc'
+            or getattr(fire.data.nxt, 'v', None) is not None or len(links_to(flow.chart, fire)) != 1):
         raise ValueError('Unexpected Impa send-off end.')
     send_off = _stone_check(flow, 'RandoSendOffStones', stones, None)
     fire.data.nxt = make_index(send_off)
@@ -662,7 +651,7 @@ def zelda_escape_on_talk(raw, stones=STONE_SETS['all']):
     first = entry.main_event.v
     entry.main_event = make_index(_stone_check(flow, 'RandoTalkStones', stones, first))
     result, events = flow.write()
-    start = {e.name: e for e in _flow(result).flowchart.entry_points}['Talk'].main_event.v
+    start = {e.name: e for e in parse_flow(result).flowchart.entry_points}['Talk'].main_event.v
     if start.name != 'RandoTalkStonesStarted' or events['RandoTalkStonesCount'].data.nxt.v.name != first.name:
         raise ValueError('Stone check wrongly chained in the Zelda talk.')
     return result, {'flow': ZELDA_FLOW, 'start': start.name, 'stones': list(stones)}
@@ -680,11 +669,10 @@ GOHMA_STONE_FLOW = 'Event/EventFlow/Dm_Kokiri_0130.bfevfl.zs'
 
 def skip_stone_menu_presentation(raw):
     """``Dm_Kokiri_0130``: no quest menu presentation at the end. Returns (bytes, report)."""
-    from oot_rando.patching.qol_patches import _predecessors
     flow = _Chart(raw)
     wait, menu = flow.event('Event56', 'ActionEvent'), flow.event('Event52', 'ActionEvent')
     if (menu.data.actor_action.v.v != 'EventOpenPerformanceImportantMenu' or wait.data.nxt.v is not menu
-            or getattr(menu.data.nxt, 'v', None) is not None or len(_predecessors(flow.chart, menu)) != 1):
+            or getattr(menu.data.nxt, 'v', None) is not None or len(links_to(flow.chart, menu)) != 1):
         raise ValueError('Unexpected Gohma stone scene end (already patched?).')
     wait.data.nxt.v = None
     result, events = flow.write()
@@ -807,11 +795,11 @@ def prelude_keeps_later_sage_progress(raw):
     flow = _Chart(raw)
     teaching = flow.event('Event37', 'ActionEvent')
     rollback = flow.event('Event34', 'ActionEvent')
-    if (_params(teaching).get('EventName') != 'Dm_MelodyGet_Shine'
+    if (event_params_of(teaching).get('EventName') != 'Dm_MelodyGet_Shine'
             or teaching.data.nxt.v is not rollback
             or rollback.data.actor_action.v.v != 'EventExecuteRollbackChallengeStep'
-            or _params(rollback).get('ChallengeName') != 'AllSage'
-            or _params(rollback).get('ChallengeStep') != 'Step01_01'):
+            or event_params_of(rollback).get('ChallengeName') != 'AllSage'
+            or event_params_of(rollback).get('ChallengeStep') != 'Step01_01'):
         raise ValueError('Unexpected Prelude quest rollback (already patched?).')
     gate = flow.switch('RandoPreludeLaterSages', 'EventQueryIsGameDataBoolExp',
                        {'GameDataName': PRELUDE_LATER_STEP}, None, rollback)
@@ -1044,22 +1032,21 @@ def dampe_first_race_until_prize(raw):
 
     Returns (bytes, report)."""
     from evfl.util import make_index
-    from oot_rando.patching.qol_patches import _predecessors
     flow = _Chart(raw)
     opened = flow.event('Event201', 'ActionEvent')
-    if (_params(opened) != {'Index': -1, 'GameDataName': 'Minigame_DampeRace_TreasureBoxState',
+    if (event_params_of(opened) != {'Index': -1, 'GameDataName': 'Minigame_DampeRace_TreasureBoxState',
                             'Value': 'OpenedHookShot'} or getattr(opened.data.nxt, 'v', None) is None):
         raise ValueError("Unexpected Dampé race prize step.")
     replaced = {}
     for name, (actor, query, params) in DAMPE_HOOKSHOT_CHECKS.items():
         check = flow.event(name, 'SwitchEvent')
         if (str(check.data.actor.v.identifier) != actor or check.data.actor_query.v.v != query
-                or _params(check) != params):
+                or event_params_of(check) != params):
             raise ValueError(f"Unexpected Dampé race Hookshot check {name} (already patched?).")
         cases = {key: case.v for key, case in check.data.cases.items()}
         new = flow.switch('RandoDampe' + name, 'EventQueryIsGameDataBool',
                           {'GameDataName': DAMPE_FIRST_PRIZE, 'Index': -1}, cases.get(0), cases.get(1))
-        links = _predecessors(flow.chart, check)
+        links = links_to(flow.chart, check)
         if not links:
             raise ValueError(f'Dampé race check {name} unreached.')
         for owner, kind, key in links:
@@ -1077,13 +1064,13 @@ def dampe_first_race_until_prize(raw):
     # first race already counted as cleared (Event442 before this fix) keeps the
     # Hookshot chest: until the first prize is opened, Result takes the ClearCount 0 path.
     result_switch = flow.event(DAMPE_RESULT_SWITCH, 'SwitchEvent')
-    if (_params(result_switch) != {'GameDataName': 'MiniGame_DampeRace_ClearCount'}
+    if (event_params_of(result_switch) != {'GameDataName': 'MiniGame_DampeRace_ClearCount'}
             or result_switch.data.cases[0].v.name != DAMPE_HOOKSHOT_RESULT):
         raise ValueError('Unexpected Dampé race result step.')
     first_result = result_switch.data.cases[0].v
     gate = flow.switch('RandoDampeResult', 'EventQueryIsGameDataBool',
                        {'GameDataName': DAMPE_FIRST_PRIZE, 'Index': -1}, result_switch, first_result)
-    result_links = _predecessors(flow.chart, result_switch)
+    result_links = links_to(flow.chart, result_switch)
     for owner, kind, key in result_links:
         if owner is gate:
             continue
@@ -1098,9 +1085,8 @@ def dampe_first_race_until_prize(raw):
     mark = flow.set_bool('RandoDampeFirstPrizeOpened', DAMPE_FIRST_PRIZE, True, opened.data.nxt.v)
     opened.data.nxt = make_index(mark)
     result, events = flow.write()
-    from oot_rando.patching.event_patch import _flow
     entries = {}
-    for entry in _flow(result).flowchart.entry_points:
+    for entry in parse_flow(result).flowchart.entry_points:
         if entry.main_event.v is not None:
             entries[entry.main_event.v.name] = entries.get(entry.main_event.v.name, 0) + 1
     for name, (cases, count) in replaced.items():
@@ -1151,7 +1137,7 @@ def kokiri_exit_guard_steps_aside(raw):
     if (end is None or lower is None or getattr(end.main_event, 'v', None) is None
             or end.main_event.v.name != 'Event60' or getattr(lower.main_event, 'v', None) is None
             or lower.main_event.v.name != 'Event10'
-            or _params(clear) != {'Index': -1, 'GameDataName': KOKIRI_EXIT_WALL, 'Value': False}):
+            or event_params_of(clear) != {'Index': -1, 'GameDataName': KOKIRI_EXIT_WALL, 'Value': False}):
         raise ValueError('Unexpected Kokiri exit guard flow.')
     usual, talk = end.main_event.v, lower.main_event.v
     done = flow.switch('RandoExitDekuTreeDone', 'EventQueryIsGameDataBoolExp',
@@ -1160,7 +1146,7 @@ def kokiri_exit_guard_steps_aside(raw):
                        {'GameDataName': KOKIRI_EXIT_WALL, 'Index': -1}, done, usual)
     end.main_event = make_index(wall)
     result, events = flow.write()
-    start = {e.name: e for e in _flow(result).flowchart.entry_points}[end.name].main_event.v
+    start = {e.name: e for e in parse_flow(result).flowchart.entry_points}[end.name].main_event.v
     up, deku = events['RandoExitWallUp'].data.cases, events['RandoExitDekuTreeDone'].data.cases
     if (start.name != 'RandoExitWallUp' or up[0].v.name != 'RandoExitDekuTreeDone' or up[1].v.name != 'Event60'
             or deku[0].v.name != 'Event10' or deku[1].v.name != 'Event60'):
@@ -1516,7 +1502,7 @@ def scene_expressions_applied(gamedata_raw):
                for name, program in _scene_programs().items())
 
 
-def _module_edit(raw, check, edit):
+def edit_ainb_module(raw, check, edit):
     """AINB ``raw`` rewritten by ``edit(nodes)`` once ``check(nodes)`` passed; re-read exactly."""
     import copy
     import ainb
@@ -1565,7 +1551,7 @@ def water_gate_for_adult(raw):
             'Inputs': {'String': [{'Name': 'GameDataNameBoolExp', 'Default Value': WATER_GATE_OPEN,
                                    'Node Index': -1, 'Output Index': 0, 'Flags': ['Uses Default']}]},
             'Outputs': {'Bool': [{'Name': 'Bool', 'Is Output': True}]}}
-    return _module_edit(raw, check, edit), {'module': WATER_GATE_MODULE, 'gate': WATER_GATE_OPEN}
+    return edit_ainb_module(raw, check, edit), {'module': WATER_GATE_MODULE, 'gate': WATER_GATE_OPEN}
 
 
 def serenade_keeps_water_temple(raw):
@@ -1597,7 +1583,7 @@ def door_opens_on_saved_flag(raw):
         gate['Queries'] = [4, 8, 8, 6]
         # A node only computes its flagged outputs.
         flag['Parameters']['Outputs']['Bool'][0]['Is Output'] = True
-    return _module_edit(raw, check, edit), {'module': DOOR_MODULE, 'flag': DOOR_OPENED}
+    return edit_ainb_module(raw, check, edit), {'module': DOOR_MODULE, 'flag': DOOR_OPENED}
 
 
 def bombchu_shop_actor_edits(root, path):
@@ -1646,7 +1632,7 @@ def bombchu_shop_open_from_start(raw):
             time = gate['Parameters']['Inputs']['Bool'][0]['Sources'][1]
             gate['Parameters']['Inputs']['Bool'][0]['Sources'] = [dict(time), dict(time)]
             gate['Queries'] = queries
-    return _module_edit(raw, check, edit), {'module': BOMBCHU_SHOP_MODULE, 'dropped': BOMBCHU_SHOP_QUEST}
+    return edit_ainb_module(raw, check, edit), {'module': BOMBCHU_SHOP_MODULE, 'dropped': BOMBCHU_SHOP_QUEST}
 
 
 def door_song_before_escape(raw):
@@ -1660,15 +1646,15 @@ def door_song_before_escape(raw):
     gate, opened = flow.event('Event60', 'SwitchEvent'), flow.event('Event69', 'SwitchEvent')
     step06, step05 = flow.event('Event57', 'ActionEvent'), flow.event('Event14', 'ActionEvent')
     if (getattr(entries.get('DoorOfTime_OpenDoor'), 'main_event', None) is None
-            or _params(gate) != {'GameDataName': DOOR_SONG_STEP} or _case(gate, 0) is not opened
-            or _case(gate, 1) is not None or _params(opened).get('GameDataName') != DOOR_OPENED
-            or _params(step06).get('StepName') != 'Step06' or _params(step05).get('StepName') != 'Step05'
+            or event_params_of(gate) != {'GameDataName': DOOR_SONG_STEP} or case_target(gate, 0) is not opened
+            or case_target(gate, 1) is not None or event_params_of(opened).get('GameDataName') != DOOR_OPENED
+            or event_params_of(step06).get('StepName') != 'Step06' or event_params_of(step05).get('StepName') != 'Step05'
             or getattr(step05.data.nxt, 'v', None) is None):
         raise ValueError('Unexpected Door of Time song flow (already patched?).')
     gate.data.cases[1] = make_index(opened)
     after = step05.data.nxt.v
     follow = flow.action('RandoDoorOpenedStep06', 'ChallengeSystemActor', 'EventExecuteProgressChallengeStep',
-                         _params(step06), after)
+                         event_params_of(step06), after)
     check = flow.switch('RandoDoorOpenedBefore', 'EventQueryIsGameDataBool',
                         {'GameDataName': DOOR_OPENED, 'Index': -1}, follow, after)
     step05.data.nxt = make_index(check)
@@ -1701,7 +1687,7 @@ def bridge_on_medallions(raw):
 
     def edit(nodes):
         nodes[4]['Parameters']['Inputs']['String'][0]['Default Value'] = BRIDGE_READY
-    return _module_edit(raw, check, edit), {'module': BRIDGE_MODULE, 'ready': BRIDGE_READY}
+    return edit_ainb_module(raw, check, edit), {'module': BRIDGE_MODULE, 'ready': BRIDGE_READY}
 
 
 def revelation_keeps_ganon_quest(raw):

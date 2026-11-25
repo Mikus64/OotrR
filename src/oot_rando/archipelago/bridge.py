@@ -120,12 +120,43 @@ def player_yaml(values, open_forest, name='Player'):
     return '\n'.join(lines) + '\n'
 
 
+def to_ap_yaml(values, name='Player', open_forest=True):
+    """Archipelago YAML of the ``OoT Remake`` game (the multiworld player YAML).
+
+    The options Archipelago does not take (or takes in another form) follow in an
+    ``OoT Remake application`` section, which Archipelago ignores and
+    :func:`oot_rando.logic.rando_options.from_ap_yaml` reads back, so the export round-trips exactly.
+    """
+    from oot_rando.logic.rando_options import AP_APP_SECTION, OPTIONS, validate
+    values = validate(values, supported_only=True)
+    exposed = {spec['name'] for spec in ap_option_specs()} | {'start_inventory_from_pool'}
+    lines = [player_yaml(values, open_forest, name).rstrip('\n'),
+             '# Options of the OoT Randomizer application, ignored by Archipelago:',
+             AP_APP_SECTION + ':']
+    for option in OPTIONS:
+        if option.name in exposed:
+            continue
+        value = values[option.name]
+        if option.name == 'logic_tricks':
+            text = '[]' if value == 'none' else json.dumps(value)  # read back as a trick list
+        elif option.kind == 'items':
+            text = json.dumps(value, ensure_ascii=False)
+        elif option.kind == 'list':
+            text = json.dumps(list(value), ensure_ascii=False)
+        elif isinstance(value, bool):
+            text = 'true' if value else 'false'
+        else:
+            text = json.dumps(value if isinstance(value, str) else str(value), ensure_ascii=False)
+        lines.append(f'  {option.name}: {text}')
+    return '\n'.join(lines) + '\n'
+
+
 # ------------------------------------------------------------------ catalog
 def location_name(data, entry, gid):
     """Same name as the tracker and the spoiler (``full_randomizer.check_name``)."""
-    from oot_rando.randomizer.full_randomizer import _entry_zone, check_name
+    from oot_rando.randomizer.full_randomizer import entry_zone, check_name
     from oot_rando.game.remake_world import zone_label
-    return check_name(entry, gid, zone_label(_entry_zone(data, entry, gid)) or entry['folder'])
+    return check_name(entry, gid, zone_label(entry_zone(data, entry, gid)) or entry['folder'])
 
 
 def _catalog_variants():
@@ -416,7 +447,8 @@ def check_patch(patch):
     if not isinstance(placements, dict) or len(placements) > MAX_ENTRIES:
         raise ValueError('Invalid Archipelago patch: placements.')
     for gid, placement in placements.items():
-        if not isinstance(gid, str) or len(gid) > MAX_NAME or not isinstance(placement, dict)                 or type(placement.get('own')) is not bool:
+        if (not isinstance(gid, str) or len(gid) > MAX_NAME or not isinstance(placement, dict)
+                or type(placement.get('own')) is not bool):
             raise ValueError(f'Invalid placement in the Archipelago patch: {str(gid)[:80]}')
         _text(placement.get('item'), f'placement {gid}')
         for key in ('player', 'game'):
@@ -442,24 +474,6 @@ def check_patch(patch):
                                      for k, v in ids.items()):
         raise ValueError('Invalid Archipelago patch: location_ids.')
     return patch
-
-
-def settings_from_patch(patch, skulltulas_always_present=False):
-    """Application settings that build the mod of this patch (full randomizer only, skips on).
-
-    ``skulltulas_always_present`` only changes this game (no placement): a local choice.
-    """
-    from oot_rando.randomizer.randomizer_core import SKIP_OPTIONS, Settings
-    from oot_rando.game.randomizer_categories import CATEGORIES
-    check_patch(patch)
-    from oot_rando.logic import rando_options
-    options = dict(patch['options'])
-    options.setdefault('spiritual_stones', rando_options.UNRECORDED['spiritual_stones'])
-    seed = f'AP {patch.get("seed_name", "")} {patch.get("slot_name", "")}'.strip()[:256]
-    return Settings(seed=seed, randomize_chests=False, open_forest=bool(patch['open_forest']),
-                    categories=dict.fromkeys(CATEGORIES, False), full=options,
-                    archipelago=patch, skulltulas_always_present=bool(skulltulas_always_present),
-                    **dict.fromkeys(SKIP_OPTIONS, True)).validate()
 
 
 def _label(placement):

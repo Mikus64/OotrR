@@ -18,6 +18,7 @@ in the pen set the flag, so a reload with more than N saved still counts. Node 1
 values and the spans become N. Not validated in game.
 """
 import io
+from oot_rando.formats.evfl_tools import params_by_event, parse_flow
 
 FLOW = 'Minigame_CatchCucco'
 LOGIC_MODULE = 'Logic/MiniGame_CatchCucco_c69b.logic.module.ainb'
@@ -43,12 +44,11 @@ def check_count(count):
 
 def patch_flow(raw, count):
     """``Minigame_CatchCucco`` counting ``count`` cuccos. Returns new bytes (unchanged for 7)."""
-    from oot_rando.patching.event_patch import _flow, _snapshot
     if check_count(count) == VANILLA_COUNT:
         return raw
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     events = {e.name: e for e in flow.flowchart.events}
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     for name in FLOW_EVENTS:
         params = getattr(getattr(events.get(name), 'data', None), 'params', None)
         if (params is None or params.data.get('GameDataName') != REMAINING
@@ -59,7 +59,7 @@ def patch_flow(raw, count):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    if _snapshot(_flow(result)) != expected:
+    if params_by_event(parse_flow(result)) != expected:
         raise ValueError('Cucco patch changed other event parameters.')
     return result
 
@@ -229,8 +229,7 @@ def message_paths(members):
 
 def flow_values(raw):
     """``{event: Value}`` of the flow's two count events."""
-    from oot_rando.patching.event_patch import _flow
-    events = {e.name: e for e in _flow(raw).flowchart.events}
+    events = {e.name: e for e in parse_flow(raw).flowchart.events}
     values = {}
     for name in FLOW_EVENTS:
         params = getattr(getattr(events.get(name), 'data', None), 'params', None)

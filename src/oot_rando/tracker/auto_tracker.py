@@ -7,8 +7,9 @@ from pathlib import Path
 import threading
 
 from oot_rando.logic.rules import split_age_member
-from oot_rando.randomizer.randomizer_services import ManualTracker, read_artifact
-from oot_rando.tracker.save_reader import load_snapshot
+from oot_rando.randomizer.artifact import read_artifact
+from oot_rando.tracker.manual_tracker import ManualTracker
+from oot_rando.formats.save_file import load_snapshot
 from oot_rando.paths import state_dir
 from oot_rando.pc_port import KNOWN_EXES, port_exe
 

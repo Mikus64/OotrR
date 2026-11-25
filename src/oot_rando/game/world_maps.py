@@ -9,7 +9,7 @@ import hashlib
 
 from oot_rando.formats.byml_writer import patch_strings
 from oot_rando.formats.inspect_resources import Byml, decompress, sarc
-from oot_rando.patching.randomize_kokiri import CHESTS
+from oot_rando.catalog.kokiri_chests import CHESTS
 from oot_rando.game.randomizer_categories import candidate_category, CATEGORIES
 from oot_rando.game.remake_world import inaccessible_child_actor
 

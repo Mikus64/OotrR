@@ -8,6 +8,7 @@ import os
 import unittest
 from collections import Counter
 
+from oot_rando.archipelago.bridge import to_ap_yaml
 from oot_rando.logic import rando_options
 from oot_rando.game.extra_sources import NPC_GIFTS, EXCLUDED_NPC_LOCATIONS, scan_map_sources
 from oot_rando.randomizer.full_randomizer import enabled_sources, source_in_scope
@@ -207,7 +208,7 @@ class Units(unittest.TestCase):
     def test_options_and_yaml(self):
         values = rando_options.preset('everything')
         rando_options.validate(values, supported_only=True)
-        imported, ignored = rando_options.from_ap_yaml(rando_options.to_ap_yaml(values))
+        imported, ignored = rando_options.from_ap_yaml(to_ap_yaml(values))
         self.assertEqual(imported, values)
         self.assertEqual(ignored, [])
         imported, _ = rando_options.from_ap_yaml('Ocarina of Time:\n  shopsanity: 3\n  tokensanity: all\n')

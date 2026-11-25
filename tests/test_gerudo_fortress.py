@@ -5,7 +5,8 @@ import unittest
 import _src_path  # noqa: F401
 from oot_rando.patching import game_defaults, quest_guard, world_openings
 from oot_rando.patching import gerudo_fortress as g
-from oot_rando.patching.story_fixes import _Chart, _params
+from oot_rando.patching.story_fixes import _Chart
+from oot_rando.formats.evfl_tools import event_params_of
 from oot_rando.formats import byml_codec
 from oot_rando.formats.inspect_resources import sarc
 
@@ -33,7 +34,7 @@ class Fortress(unittest.TestCase):
             events = _Chart(files[g.SPIRIT_FLOW]).events
             event = events['Event192'].data.nxt.v
             while event.name.startswith('RandoFreeCarpenters'):
-                params = _params(event)
+                params = event_params_of(event)
                 self.assertEqual(event.data.actor_action.v.v, 'EventTriggerSetGameDataBool')
                 flags[params['GameDataName']] = params['Value']
                 event = event.data.nxt.v
@@ -56,7 +57,7 @@ class Fortress(unittest.TestCase):
                 continue
             guard = entry.main_event.v
             self.assertEqual(guard.data.actor_query.v.v, 'EventQueryIsGameDataBool')
-            self.assertEqual(_params(guard), {'GameDataName': g.CELLS_RELEASED, 'Index': -1})
+            self.assertEqual(event_params_of(guard), {'GameDataName': g.CELLS_RELEASED, 'Index': -1})
             self.assertEqual(set(guard.data.cases), {0})  # flag set: no case, the flow ends
             self.assertEqual(guard.data.cases[0].v.name, g.UNLOCK_ENTRIES[entry.name])
         self.assertEqual(len(report['entries']), 4)
@@ -157,12 +158,12 @@ class Fortress(unittest.TestCase):
             result = _Chart(g.membership_flow(self.read(path), names)[0])
             for name, event in result.events.items():
                 if name in names:
-                    self.assertEqual(_params(event), {'GameDataName': g.CARD, 'Index': -1})
+                    self.assertEqual(event_params_of(event), {'GameDataName': g.CARD, 'Index': -1})
                     self.assertEqual(event.data.actor_query.v.v, 'EventQueryIsGameDataBool')
                     self.assertEqual({k: v.v.name for k, v in event.data.cases.items()},
                                      {k: v.v.name for k, v in source.events[name].data.cases.items()})
                 elif hasattr(event.data, 'params'):
-                    self.assertEqual(_params(event), _params(source.events[name]))
+                    self.assertEqual(event_params_of(event), event_params_of(source.events[name]))
         raw = self.read(game_defaults.GAMEDATA)
         self.assertFalse(g.expressions_applied(raw))
         patched, _ = g.membership_expressions(raw)

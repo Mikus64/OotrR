@@ -199,6 +199,22 @@ class Settings:
         return cls(**value).validate()
 
 
+def settings_from_patch(patch, skulltulas_always_present=False):
+    """Application settings that build the mod of this patch (full randomizer only, skips on).
+
+    ``skulltulas_always_present`` only changes this game (no placement): a local choice.
+    """
+    from oot_rando.archipelago.bridge import check_patch
+    check_patch(patch)
+    options = dict(patch['options'])
+    options.setdefault('spiritual_stones', rando_options.UNRECORDED['spiritual_stones'])
+    seed = f'AP {patch.get("seed_name", "")} {patch.get("slot_name", "")}'.strip()[:256]
+    return Settings(seed=seed, randomize_chests=False, open_forest=bool(patch['open_forest']),
+                    categories=dict.fromkeys(CATEGORIES, False), full=options,
+                    archipelago=patch, skulltulas_always_present=bool(skulltulas_always_present),
+                    **dict.fromkeys(SKIP_OPTIONS, True)).validate()
+
+
 def _canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
 
@@ -345,7 +361,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
     ``save_seed_id``: an earlier seed of the same Archipelago slot whose saves this one
     continues (its save marker is kept); by default the seed binds its own saves.
     ``saves_from``: oldest application version these saves may come from, when the seed
-    replaces an older one (tracker/save_patch.py, ``saves_from``)."""
+    replaces an older one (randomizer/save_patch.py, ``saves_from``)."""
     settings.validate_supported()
     output = Path(output)
     if output.exists():
@@ -889,7 +905,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
         if saves_from:
             manifest['saves_from'] = str(saves_from)
         if start_values:
-            # Values a game started before a fix never received (tracker/save_patch.py).
+            # Values a game started before a fix never received (randomizer/save_patch.py).
             manifest['start_values'] = dict(sorted(start_values.items()))
         if full is not None:
             families = sorted({p['source'] for p in full['placements']})

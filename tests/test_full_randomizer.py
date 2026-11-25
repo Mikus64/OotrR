@@ -8,6 +8,7 @@ import struct
 import unittest
 import zlib
 
+from oot_rando.archipelago.bridge import to_ap_yaml
 from oot_rando.formats import byml_codec
 from oot_rando.formats.byml_writer import patch_strings
 from oot_rando.randomizer.full_randomizer import DetRandom
@@ -40,7 +41,7 @@ class Units(unittest.TestCase):
 
     def test_ap_yaml_roundtrip_and_off(self):
         values = rando_options.preset('everything')
-        imported, ignored = rando_options.from_ap_yaml(rando_options.to_ap_yaml(values))
+        imported, ignored = rando_options.from_ap_yaml(to_ap_yaml(values))
         self.assertEqual(imported, values)
         self.assertEqual(ignored, [])
         imported, ignored = rando_options.from_ap_yaml(

@@ -34,6 +34,7 @@ import struct
 
 from oot_rando.formats.inspect_resources import Byml
 from oot_rando.patching.randomize_kokiri import slot
+from oot_rando.formats.evfl_tools import links_to, next_events, params_by_event, parse_flow
 
 INTRO = 'Event/EventSetting/EventSettingComponentList/Dm_Kokiri_0000.engine__event__EventSettingComponentList.bgyml'
 INTRO_PARENT = 'Event/EventSetting/EventSettingComponentList/RecordMovieTimelineEvent.engine__event__EventSettingComponentList.bgyml'
@@ -336,10 +337,10 @@ def add_skip_window(raw, fade_in=True):
     from evfl.container import Container
     from evfl.event import Event, ActionEvent, ForkEvent, JoinEvent, SwitchEvent, SubFlowEvent
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import _flow, _snapshot, GAMEDATA_ACTOR_PARAMS
-    flow = _flow(raw)
+    from oot_rando.patching.event_patch import GAMEDATA_ACTOR_PARAMS
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     for event in chart.events:
         holder = getattr(event.data, 'actor_action', None)
         action = holder.v.v if holder is not None and holder.v is not None else ''
@@ -422,7 +423,7 @@ def add_skip_window(raw, fade_in=True):
             if isinstance(data, SubFlowEvent) and not data.res_flowchart_name:
                 sub = entries_by_name.get(data.entry_point_name)
                 stack.append(sub.main_event.v if sub is not None else None)
-            stack.extend(_successors(event))
+            stack.extend(next_events(event))
         return found
 
     def defer_location_ui(entry_name, start, ends):
@@ -542,8 +543,8 @@ def add_skip_window(raw, fade_in=True):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The skip window changed other parameters.')
     entries = {e.name: e for e in checked.flowchart.entry_points}
     events = {e.name: e for e in checked.flowchart.events}
@@ -642,17 +643,6 @@ def skip_action_class(actor, action, params):
     return 'barrier'
 
 
-def _successors(event):
-    from evfl.event import ForkEvent, SwitchEvent
-    data = event.data
-    if isinstance(data, SwitchEvent):
-        return [c.v for c in data.cases.values() if c.v is not None]
-    if isinstance(data, ForkEvent):
-        return [f.v for f in data.forks] + [data.join.v]
-    nxt = getattr(data, 'nxt', None)
-    return [nxt.v] if nxt is not None and nxt.v is not None else []
-
-
 class _SkipAnalysis:
     """Classifies regions of one flow; ``load_flow(name)`` gives other flows (or None)."""
 
@@ -731,7 +721,7 @@ class _SkipAnalysis:
                         info['content'] = info['content'] or sub['content']
                         info['world'] = info['world'] or sub['world']
             # depth first along the chain: writes are listed in execution order
-            stack.extend(reversed(_successors(event)))
+            stack.extend(reversed(next_events(event)))
         return info
 
     def certain(self, event, stop, path=frozenset()):
@@ -794,7 +784,7 @@ class _SkipAnalysis:
                     continue
                 seen.add(event.name)
                 order.append(event)
-                queue.extend(_successors(event))
+                queue.extend(next_events(event))
             orders.append(order)
         if len(orders) < 2:
             return None
@@ -859,7 +849,7 @@ def _redirect(unit, target, chart):
             pass
         elif getattr(data, 'nxt', None) is not None and data.nxt.v is exit_:
             data.nxt = make_index(target)
-        stack.extend(_successors(event))
+        stack.extend(next_events(event))
 
 
 def add_skip_windows_with_replay(raw, load_flow=None, external_entries=()):
@@ -871,10 +861,10 @@ def add_skip_windows_with_replay(raw, load_flow=None, external_entries=()):
     from evfl.container import Container
     from evfl.event import Event, ActionEvent, SwitchEvent, SubFlowEvent
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import _flow, _snapshot, GAMEDATA_ACTOR_PARAMS
-    flow = _flow(raw)
+    from oot_rando.patching.event_patch import GAMEDATA_ACTOR_PARAMS
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     for event in chart.events:
         holder = getattr(event.data, 'actor_action', None) or getattr(event.data, 'actor_query', None)
         if holder is not None and 'Skip' in holder.v.v:
@@ -988,7 +978,7 @@ def add_skip_windows_with_replay(raw, load_flow=None, external_entries=()):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    if _snapshot(_flow(result)) != expected:
+    if params_by_event(parse_flow(result)) != expected:
         raise ValueError('The skip windows changed other parameters.')
     return result, report
 
@@ -1015,7 +1005,6 @@ def skip_window_candidates(event_settings_raw):
 
 def skip_window_context(read_flow, flow_names):
     """(load_flow, external entries per flow) from the original flows."""
-    from oot_rando.patching.event_patch import _flow
     from evfl.event import SubFlowEvent
     charts = {}
     def load_flow(name):
@@ -1023,7 +1012,7 @@ def skip_window_context(read_flow, flow_names):
             charts[name] = None
             if name in flow_names:
                 try:
-                    charts[name] = _flow(read_flow(flow_path(name))).flowchart
+                    charts[name] = parse_flow(read_flow(flow_path(name))).flowchart
                 except ValueError:
                     charts[name] = None
         return charts[name]
@@ -1092,10 +1081,9 @@ def quick_chest(raw):
     from evfl.container import Container
     from evfl.event import Event, ActionEvent, SubFlowEvent
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     entry = next(e for e in chart.entry_points if e.name == 'Success_')
     switch = entry.main_event.v
     fanfare = switch.data.cases[0].v
@@ -1166,8 +1154,8 @@ def quick_chest(raw):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The quick chest changed other parameters.')
     events = {e.name: e for e in checked.flowchart.events}
     chain, event = [], events[perform.name]
@@ -1200,10 +1188,9 @@ SMALL_CHEST_STEPS = ('EventTriggerTBoxPushPoseMask', 'EventPlayAS', 'EventTreasu
 def quick_small_chest(raw):
     from evfl.event import Event, ActionEvent, SubFlowEvent
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     names = {e.name for e in chart.events}
     if any(n.startswith('RandoQuickChest') for n in names):
         raise ValueError('Small chest flow already modified.')
@@ -1259,8 +1246,8 @@ def quick_small_chest(raw):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The quick small chest changed other parameters.')
     events = {e.name: e for e in checked.flowchart.events}
     chain, event = [], next(e for e in checked.flowchart.entry_points if e.name == 'Success_').main_event.v
@@ -1303,10 +1290,9 @@ def ocarina_guide_on_get(raw):
     from evfl.container import Container
     from evfl.event import Event, SwitchEvent, SubFlowEvent
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     entries = {e.name: e for e in chart.entry_points}
     if 'ActionGuide' not in entries or OCARINA_GUIDE_ENTRY not in entries:
         raise ValueError('Unexpected ActionGuide flow.')
@@ -1356,8 +1342,8 @@ def ocarina_guide_on_get(raw):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The ocarina guide changed other parameters.')
     events = {e.name: e for e in checked.flowchart.events}
     start = {e.name: e for e in checked.flowchart.entry_points}['ActionGuide'].main_event.v
@@ -1404,10 +1390,9 @@ def saria_add_before_display(raw):
     """Saria's gift added to the pouch before its get window. Returns (bytes, report)."""
     import io
     from evfl.util import make_index
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     events = {e.name: e for e in flow.flowchart.events}
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     add, display = events.get(SARIA_ADD), events.get(SARIA_DISPLAY)
     before, fork = events.get(SARIA_BEFORE), events.get(SARIA_FORK)
     if (add is None or display is None or before is None or fork is None
@@ -1423,8 +1408,8 @@ def saria_add_before_display(raw):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = {e.name: e for e in _flow(result).flowchart.events}
-    if (_snapshot(_flow(result)) != expected or checked[SARIA_BEFORE].data.nxt.v is not checked[SARIA_ADD]
+    checked = {e.name: e for e in parse_flow(result).flowchart.events}
+    if (params_by_event(parse_flow(result)) != expected or checked[SARIA_BEFORE].data.nxt.v is not checked[SARIA_ADD]
             or checked[SARIA_ADD].data.nxt.v is not checked[SARIA_DISPLAY]
             or checked[SARIA_ADD] in [f.v for f in checked[SARIA_FORK].data.forks]):
         raise ValueError('Saria gift reordering failed.')
@@ -1445,25 +1430,6 @@ GIFT_GET_TARGET = ('Dm_SY_GetInEvent', 'GetInEvent_NotTurn_NotNpc')
 GIFT_GET_EVENT = 'RandoGiftGet'
 
 
-def _predecessors(chart, target):
-    """(event, kind, key) for every link to ``target`` (entry points as ('entry', ep))."""
-    links = []
-    for event in chart.events:
-        data = event.data
-        if getattr(data, 'nxt', None) is not None and data.nxt.v is target:
-            links.append((event, 'nxt', None))
-        for key, case in (getattr(data, 'cases', None) or {}).items():
-            if case.v is target:
-                links.append((event, 'case', key))
-        for index, fork in enumerate(getattr(data, 'forks', None) or []):
-            if fork.v is target:
-                links.append((event, 'fork', index))
-    for entry in chart.entry_points:
-        if entry.main_event.v is target:
-            links.append((entry, 'entry', None))
-    return links
-
-
 def bypass_cutscene_gift(raw, name):
     """Returns (bytes, report): the cutscene goes on without adding its item.
 
@@ -1472,10 +1438,9 @@ def bypass_cutscene_gift(raw, name):
     """
     from evfl.event import ActionEvent, SubFlowEvent
     from evfl.util import make_index
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     events = {e.name: e for e in chart.events}
     event = events.get(name)
     data = getattr(event, 'data', None)
@@ -1487,12 +1452,12 @@ def bypass_cutscene_gift(raw, name):
     marker = events.get('RandoCollected_' + name)
     if marker is not None and resume is marker:
         if (not isinstance(marker.data, ActionEvent) or marker.data.actor_action.v.v != 'EventTriggerSetGameDataBool'
-                or len(_predecessors(chart, marker)) != 1):
+                or len(links_to(chart, marker)) != 1):
             raise ValueError('Unexpected collection marker: ' + marker.name)
         flag, resume = marker.data.params.data['GameDataName'], marker.data.nxt.v
     if resume is None:
         raise ValueError('Cutscene item hand-over without continuation: ' + name)
-    links = _predecessors(chart, event)
+    links = links_to(chart, event)
     if not links:
         raise ValueError('Cutscene item hand-over never reached: ' + name)
     for owner, kind, key in links:
@@ -1507,11 +1472,11 @@ def bypass_cutscene_gift(raw, name):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('Bypassing the cutscene item changed other parameters.')
     written = {e.name: e for e in checked.flowchart.events}
-    if _predecessors(checked.flowchart, written[name]):
+    if links_to(checked.flowchart, written[name]):
         raise ValueError('Cutscene item hand-over still reached: ' + name)
     return result, {'actor': data.params.data['ActorName'], 'flag': flag, 'resume': resume.name}
 
@@ -1524,10 +1489,10 @@ def give_gift_after(raw, after, actor, flag=None):
     from evfl.container import Container
     from evfl.event import Event, SubFlowEvent
     from evfl.util import make_index
-    from oot_rando.patching.event_patch import _flow, _snapshot, add_collection_markers
-    flow = _flow(raw)
+    from oot_rando.patching.event_patch import add_collection_markers
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     events = {e.name: e for e in chart.events}
     anchor = events.get(after)
     if anchor is None or getattr(anchor.data, 'nxt', None) is None or anchor.data.nxt.v is None:
@@ -1546,8 +1511,8 @@ def give_gift_after(raw, after, actor, flag=None):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The gift changed other parameters.')
     written = {e.name: e for e in checked.flowchart.events}
     if (written[after].data.nxt.v.name != GIFT_GET_EVENT
@@ -1575,10 +1540,9 @@ SWORD_CUTSCENE = 'Dm_Kokiri_0063'
 def skip_kokiri_sword_cutscene(raw):
     """Returns (bytes, report). Only the links to the transition change."""
     from evfl.util import make_index
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     if not any(e.name == SWORD_CHEST_ENTRY for e in chart.entry_points):
         raise ValueError('GetSword entry missing from Get_StoneOfForest.')
     transitions = [e for e in chart.events if getattr(e.data, 'actor_action', None) is not None
@@ -1598,8 +1562,8 @@ def skip_kokiri_sword_cutscene(raw):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('Skipping the sword cutscene changed other parameters.')
     events = {e.name: e for e in checked.flowchart.events}
     if events[caller.name].data.nxt.v.name != after.name:
@@ -1700,7 +1664,7 @@ KOKIRI_SHOP_MAPS = (
 KOKIRI_SHOP_FLAG = 'Meet_DekuTree_IsAfter_Step02_Exp'
 
 
-def _shop_actor(name):
+def shop_actor(name):
     return name.startswith('Shop_') or name.startswith('Npc_Kokiri_001_Shop')
 
 
@@ -1718,7 +1682,7 @@ def open_kokiri_shop(raw, hidden_flag):
         presence = actor.get('Presence')
         if not isinstance(presence, dict) or presence.get('FlagName') != KOKIRI_SHOP_FLAG:
             continue
-        if not _shop_actor(actor.get('Gyaml', '')):
+        if not shop_actor(actor.get('Gyaml', '')):
             continue
         if presence.get('IsNegation'):
             presence['FlagName'] = hidden_flag  # hidden once the opening is over
@@ -1857,10 +1821,9 @@ def keep_one_scrub_good(raw):
     """Never an empty choice at a refill scrub. Returns (bytes, report)."""
     from evfl.event import ActionEvent, Event, SwitchEvent
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import _flow, _snapshot
-    flow = _flow(raw)
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     if any(e.name.startswith('RandoScrubGood') for e in chart.events):
         raise ValueError('Scrub flow already modified.')
     named = {e.name: e for e in chart.events}
@@ -1908,8 +1871,8 @@ def keep_one_scrub_good(raw):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The refill scrub guard changed other parameters.')
     written = {e.name: e for e in checked.flowchart.events}
     for event in lasts:

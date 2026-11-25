@@ -440,7 +440,7 @@ def main(argv=None):
     """``ap-client MOD_FOLDER SERVER [--password P] [--slot NAME] [--save progress.sav]``: headless client."""
     import argparse
     from pathlib import Path
-    from oot_rando.randomizer.randomizer_services import read_artifact
+    from oot_rando.randomizer.artifact import read_artifact
     from oot_rando.tracker.auto_tracker import TrackerSession, newest_save
     from oot_rando.patching.randomize_kokiri import TITLE
     parser = argparse.ArgumentParser(prog='ap-client', description=main.__doc__)

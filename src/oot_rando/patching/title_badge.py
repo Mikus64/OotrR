@@ -127,13 +127,13 @@ def textures(raw):
 def block_offset(col, row, width_blocks, block_height):
     """Byte offset of block (col, row) in a Tegra block-linear surface of 16-byte blocks.
 
-    Same addressing as ``ap_item._block_address`` (checked in game): inside a GOB the
+    Same addressing as ``ap_item.block_address`` (checked in game): inside a GOB the
     address bits 4..8 are y0, y1, xb4, y2, xb5. An earlier order (y0, xb4, y1, y2, xb5)
     swapped neighbouring blocks: the badge showed as a checkerboard (16/11).
     """
-    from oot_rando.patching.ap_item import _block_address
+    from oot_rando.patching.ap_item import block_address
     gobs_wide = (width_blocks * BLOCK + 63) // 64
-    return _block_address(col, row, 1 << block_height, gobs_wide)
+    return block_address(col, row, 1 << block_height, gobs_wide)
 
 
 def badge_area(width, height):

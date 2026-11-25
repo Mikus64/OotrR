@@ -5,16 +5,16 @@ import unittest
 
 from byml_fixture import fixture
 from oot_rando.formats import byml_codec
-from oot_rando.formats.byml_codec import _c_string
+from oot_rando.formats.byml_codec import c_string
 from oot_rando.formats.inspect_resources import Byml
 
 
 class StringTableTests(unittest.TestCase):
     def test_c_string_stops_at_the_terminator_or_the_end(self):
-        self.assertEqual(_c_string(b'ab\0cd\0', 0), 'ab')
-        self.assertEqual(_c_string(b'ab\0cd\0', 3), 'cd')
-        self.assertEqual(_c_string(b'ab\0cd', 3), 'cd')
-        self.assertEqual(_c_string(b'\0', 0), '')
+        self.assertEqual(c_string(b'ab\0cd\0', 0), 'ab')
+        self.assertEqual(c_string(b'ab\0cd\0', 3), 'cd')
+        self.assertEqual(c_string(b'ab\0cd', 3), 'cd')
+        self.assertEqual(c_string(b'\0', 0), '')
 
     def test_both_readers_agree_on_many_strings(self):
         actors = [{'Gyaml': f'Actor_{i:05d}', 'Name': f'Instance {i} é'} for i in range(3000)]

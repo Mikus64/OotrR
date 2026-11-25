@@ -9,7 +9,8 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
 from oot_rando.parties import PartyLibrary, validate_save_root
-from oot_rando.randomizer.randomizer_services import is_randomizer_seed, validate_mod_directory, read_artifact
+from oot_rando.randomizer.artifact import is_randomizer_seed, read_artifact
+from oot_rando.randomizer.mods_folder import validate_mod_directory
 from oot_rando.gui.generation_worker import generate_isolated
 from oot_rando.paths import data_dir
 from oot_rando.patching.randomize_kokiri import TITLE
@@ -118,6 +119,10 @@ class PartiesPage:
             child.destroy()
         if not self.parties_enabled.get():
             return
+        if self.party_library is None:
+            # Opening may have failed only because the game was still running while an
+            # interrupted transaction waited for recovery: try again on every refresh.
+            self.open_party_library()
         try:
             if self.party_library is None:
                 raise ValueError(self.party_library_error)
@@ -129,6 +134,10 @@ class PartiesPage:
                           'No party found' if parties else 'Your next adventure starts here',
                           'Create a party, import a seed or keep the one already installed.'
                           if not parties else 'Try another name.')
+            for folder, error in self.party_library.unreadable:
+                self.card(self.parties_rows, 'Unreadable party',
+                          f'Parties/{folder}/party.json could not be read ({error}). '
+                          'The other parties still work; restore that file or move the folder away.')
             for party in shown:
                 ident = party['id']
                 active = ident == self.party_library.active_id
@@ -394,8 +403,8 @@ class PartiesPage:
                 temporary = Path(temporary)
                 staging_mods = temporary / TITLE
                 if continuing:
-                    from oot_rando.parties import _copy
-                    _copy(Path(continuing['mods']) / continuing['mod_name'], staging_mods / continuing['mod_name'])
+                    from oot_rando.parties import copy_verified
+                    copy_verified(Path(continuing['mods']) / continuing['mod_name'], staging_mods / continuing['mod_name'])
                 installed = generate_isolated(nup, staging_mods, settings, temporary / 'archive', progress)
                 party = self.party_library.create(name, installed, mods, saves, ap_address=address,
                                                   continue_active=bool(continuing), tracker=manual)
@@ -409,7 +418,7 @@ class PartiesPage:
     def generate_plain(self, nup, mods, settings):
         """Install the seed straight into the mods folder (My Games off)."""
         from oot_rando.gui.randomizer_gui import ARCHIVE
-        from oot_rando.randomizer.randomizer_services import qol_seed_warning
+        from oot_rando.randomizer.mods_folder import qol_seed_warning
         def job(progress):
             installed = generate_isolated(nup, mods, settings, ARCHIVE, progress)
             return installed, installed

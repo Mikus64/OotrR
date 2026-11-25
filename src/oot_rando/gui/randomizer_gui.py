@@ -10,9 +10,10 @@ import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 
-from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VERSION
-from oot_rando.randomizer.randomizer_services import (read_artifact,
-                                                      regeneration_settings, validate_mod_directory)
+from oot_rando.archipelago.bridge import to_ap_yaml
+from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VERSION, settings_from_patch
+from oot_rando.randomizer.artifact import read_artifact, regeneration_settings
+from oot_rando.randomizer.mods_folder import validate_mod_directory
 from oot_rando.randomizer.qol_install import install_qol
 from oot_rando.tracker.auto_tracker import TrackerSession, find_save_slots, newest_save
 from oot_rando.tracker import game_overlay
@@ -24,7 +25,7 @@ from oot_rando.patching.randomize_kokiri import POOL, TITLE
 from oot_rando.game.randomizer_categories import CATEGORIES
 from oot_rando.game.world_maps import SAFE_CATEGORIES
 from oot_rando.logic import rando_options
-from oot_rando.paths import data_dir, seeds_dir, state_dir
+from oot_rando.paths import data_dir, seeds_dir, state_dir, write_error_log
 from oot_rando.gui import theme
 from oot_rando.gui.parties_page import PartiesPage
 from oot_rando import __version__ as APP_VERSION, updater
@@ -1431,7 +1432,7 @@ class Application(PartiesPage):
             values = rando_options.validate(self.full_values())
             name = filedialog.asksaveasfilename(defaultextension='.yaml', filetypes=[('Archipelago YAML', '*.yaml')])
             if name:
-                Path(name).write_text(rando_options.to_ap_yaml(values, open_forest=self.options['open_forest'].get()),
+                Path(name).write_text(to_ap_yaml(values, open_forest=self.options['open_forest'].get()),
                                       encoding='utf-8')
                 self.status.set('Archipelago YAML exported.')
         except Exception as error:
@@ -1483,7 +1484,7 @@ class Application(PartiesPage):
             name = filedialog.askopenfilename(filetypes=[('Archipelago patch', '*' + bridge.PATCH_SUFFIX)])
             if not name:
                 return
-            settings = bridge.settings_from_patch(
+            settings = settings_from_patch(
                 bridge.load_patch(name), self.options['skulltulas_always_present'].get()).validate_supported()
             self.party_name.set('')
             nup = Path(self.nup.get())
@@ -1593,6 +1594,9 @@ class Application(PartiesPage):
                 result = function(lambda text: self.events.put(('progress', text)))
                 self.events.put(('done', (done, result)))
             except Exception as error:
+                import traceback
+                # A worker process failure carries the traceback of where it really failed.
+                write_error_log(getattr(error, 'trace', '') or traceback.format_exc())
                 self.events.put(('error', str(error)))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1638,8 +1642,8 @@ class Application(PartiesPage):
 
         A fix written by the new-game opening only reaches games started after it. Saves
         of this seed (or of the one it regenerates) are listed; nothing is written unless
-        the player agrees, and each save is backed up first (tracker/save_patch.py)."""
-        from oot_rando.tracker import save_patch
+        the player agrees, and each save is backed up first (randomizer/save_patch.py)."""
+        from oot_rando.randomizer import save_patch
         try:
             paths = (list(Path(self.party_context['saves']).glob('slot_*/progress.sav')) if self.party_context
                      else find_save_slots(self.hookshot_root(), TITLE, self.mods.get() or None))
@@ -2361,7 +2365,7 @@ class Application(PartiesPage):
         def worker():
             try:
                 self.events.put(('update-found', (updater.latest_release(experimental=experimental), silent)))
-            except updater.UpdateError as error:
+            except Exception as error:   # any failure must release ``self.updating``
                 self.events.put(('update-error', (error, silent)))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -2397,7 +2401,7 @@ class Application(PartiesPage):
         def worker():
             try:
                 self.events.put(('update-installed', updater.install(release, lambda m: self.events.put(('progress', m)))))
-            except updater.UpdateError as error:
+            except Exception as error:   # any failure must release ``self.updating``
                 self.events.put(('update-error', (error, False)))
         threading.Thread(target=worker, daemon=True).start()
 
