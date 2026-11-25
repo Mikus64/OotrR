@@ -25,6 +25,7 @@ from oot_rando.game.world_maps import effective_members
 from oot_rando.patching.event_patch import add_pouch_items
 from oot_rando.patching.randomize_kokiri import RESTBL
 from oot_rando.randomizer.artifact import RELOAD_TEST_STATE as STATE, seed_original  # noqa: F401
+from oot_rando.patching.event_patch import starting_item_events
 
 FLOW = 'Event/EventFlow/Obj_Kokiri_MessageBoard_A_01.bfevfl.zs'
 ANCHOR = 'Event1'            # Talk: Event0 (the board's text) → Event1 (action guide) → end
@@ -50,7 +51,6 @@ def variant_flow(vanilla_raw, variant):
     """Board flow of a variant (decompressed bytes)."""
     import io
     import evfl
-    from oot_rando.patching.event_patch import starting_item_events
     raw = add_pouch_items(vanilla_raw, ANCHOR, [ITEM])
     if VARIANTS[variant] == 1:
         return raw

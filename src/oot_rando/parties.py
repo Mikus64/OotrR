@@ -20,6 +20,8 @@ from oot_rando.pc_port import longshot_layout_root
 from oot_rando.randomizer.artifact import read_artifact, is_randomizer_seed
 from oot_rando.randomizer.mods_folder import validate_mod_directory
 from oot_rando.randomizer.save_patch import GameRunning, running_game
+from oot_rando.randomizer.mods_folder import conflicting_mods
+from oot_rando.randomizer.mods_folder import qol_seed_warning
 
 
 def _write(path, value):
@@ -402,12 +404,10 @@ class PartyLibrary:
         if saves.exists() and any(saves.iterdir()) and not owns_save:
             raise ValueError('This destination already contains saves. Preserve its installed game first '
                              'or choose an empty save account folder.')
-        from oot_rando.randomizer.mods_folder import conflicting_mods
         conflicts = conflicting_mods(mods, manifest,
                                      outgoing['mod_name'] if outgoing and Path(outgoing['mods']) == mods else '') if mods.exists() else []
         if conflicts:
             raise ValueError('Conflicting mods: ' + ', '.join(conflicts))
-        from oot_rando.randomizer.mods_folder import qol_seed_warning
         if qol_seed_warning(mods):
             raise ValueError('Move OoT_QoL out of this mods folder before activating a randomizer party.')
         outgoing_mods_missing = bool(outgoing and not Path(outgoing['mods']).exists())

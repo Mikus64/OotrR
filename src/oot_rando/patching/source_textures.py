@@ -15,6 +15,8 @@ from oot_rando.formats import byml_codec as codec
 from oot_rando.game.item_forms import resolve_components, pack_path
 from oot_rando.patching.repeatable_adapter import EVENT_PACK, EVENT_MEMBER, ainb_default, stable_guid
 from oot_rando.patching.song_models import read_pointer, read_u16, read_u32, read_name
+from oot_rando.formats.inspect_resources import decompress
+from oot_rando.formats.inspect_resources import sarc
 
 ASSETS = Path(__file__).with_name('source_textures')
 REMAPS = {
@@ -156,7 +158,6 @@ def visibility_ai(raw, flag, filename, materials, templates):
 def build_files(records, maps, raw_maps, read_pack, read_raw, tables):
     """Build source packs/models/textures and repoint only shuffled map instances."""
     import ainb
-    from oot_rando.formats.inspect_resources import sarc, decompress
     if not any(r['kind'] == 'pickup' and r.get('variants') for r in records):
         return {}
     global_ai = sarc(read_raw(EVENT_PACK))

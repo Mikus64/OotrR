@@ -19,6 +19,8 @@ falling pickup instead (``Obj_RandoDrop_<canonical>``, see ``DROP_TEMPLATE``).
 Their behaviour is experimental until an in-game pilot confirms it.
 """
 import copy
+from oot_rando.catalog.tokens import FAMILIES
+from oot_rando.catalog.tokens import token_family
 
 WORLD_PREFIX = 'Obj_Rando_'
 # The same pickups on a spot under water (``game/underwater.py``): they glow (see GLOW_ACTOR).
@@ -117,7 +119,6 @@ SAME_MODEL = {'Weapon_Range_SlingShot': 'Item_Range_SlingShot', 'Weapon_Range_Bo
 
 def model_of(canonical):
     """Game item whose model (and model box) ``canonical`` is drawn with."""
-    from oot_rando.catalog.tokens import FAMILIES, token_family
     family = token_family(canonical)
     if family is not None:
         model = FAMILIES[family][3]

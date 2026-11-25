@@ -9,6 +9,8 @@ from oot_rando.pc_port import is_port_folder
 from oot_rando.randomizer.artifact import (QOL_FOLDER, is_qol_install, is_randomizer_seed, manifest_of,
                                           read_artifact)
 from oot_rando.randomizer.randomizer_core import settings_identity
+from oot_rando.versions import is_newer
+from oot_rando.versions import version_key
 
 
 def archive_previous_seeds(title_directory, archive, keep=None):
@@ -88,7 +90,6 @@ def saves_origin(title_directory, destination, settings):
     regenerations whose save update the player declined (randomizer/save_patch.py)."""
     from oot_rando import __version__
     from oot_rando.randomizer.save_patch import BEFORE_RECORDED_VERSIONS, saves_from
-    from oot_rando.versions import is_newer, version_key
     title_directory, destination = Path(title_directory), Path(destination)
     replaced = [destination] if is_randomizer_seed(destination) else []
     if settings.archipelago is not None and title_directory.is_dir():

@@ -543,7 +543,6 @@ DOOR_STEP03_PARAMS = {'IsIgnoreCompletedChallenge': False, 'IsIgnoreChallengePro
 
 def escape_stones(full):
     """The stones Zelda's escape asks for, from the (stored) full randomizer options."""
-    from oot_rando.logic import rando_options
     return STONE_SETS[rando_options.escape_requirement(full)]
 
 
@@ -717,7 +716,6 @@ def _sheik_temple_program():
 
 def sheik_temple_expression(gamedata_raw):
     """GameData with the BoolExp :data:`SHEIK_TEMPLE_GONE`. Returns (bytes, report)."""
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     document = byml_codec.load(gamedata_raw)
     data = document['root']['Data']
@@ -737,7 +735,6 @@ def sheik_temple_expression(gamedata_raw):
 
 
 def sheik_temple_applied(gamedata_raw):
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     entries = {int(e['Hash']): e for e in byml_codec.load(gamedata_raw)['root']['Data']['BoolExp']}
     entry = entries.get(murmur3(SHEIK_TEMPLE_GONE))
@@ -867,7 +864,6 @@ def kakariko_burning_on_medallions(gamedata_raw):
     """GameData where Kakariko's burning scene and burnt banc follow the three medallions.
 
     Returns (bytes, report)."""
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     document = byml_codec.load(gamedata_raw)
     data = document['root']['Data']
@@ -890,7 +886,6 @@ def kakariko_burning_on_medallions(gamedata_raw):
 
 def kakariko_burning_applied(gamedata_raw):
     """True when ``gamedata_raw`` holds the patched programs of :func:`kakariko_burning_on_medallions`."""
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     entries = {int(e['Hash']): e for e in byml_codec.load(gamedata_raw)['root']['Data']['BoolExp']}
     return all(murmur3(name) in entries
@@ -1282,6 +1277,8 @@ def keep_first_arrivals_forward(read_flow, challenges_raw):
 
 
 from oot_rando.patching.owl_advice import FLOW_FIXES as OWL_FLOW_FIXES
+from oot_rando.formats import byml_codec
+from oot_rando.logic import rando_options
 
 # --- Link the Goron's tunic (adult) ------------------------------------------------
 # Adult Link the Goron (``Npc_Goron_DaruniaJr_Adult``) hands over the Goron Tunic in
@@ -1437,7 +1434,6 @@ def door_song_condition(gamedata_raw, requirement='song'):
 
     Returns (GameData bytes, report). Does not alter the separate escape rules.
     """
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     program = _door_song_program(requirement)
     document = byml_codec.load(gamedata_raw)
@@ -1456,7 +1452,6 @@ def door_song_condition(gamedata_raw, requirement='song'):
 
 
 def door_song_condition_applied(gamedata_raw, requirement='song'):
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     entries = [e for e in byml_codec.load(gamedata_raw)['root']['Data']['BoolExp']
                if int(e['Hash']) == murmur3(DOOR_SONG_INVALID)]
@@ -1476,7 +1471,6 @@ def _scene_programs():
 
 def scene_expressions(gamedata_raw):
     """GameData with :data:`WATER_GATE_OPEN` and :data:`BRIDGE_READY`. Returns (bytes, report)."""
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     document = byml_codec.load(gamedata_raw)
     data = document['root']['Data']
@@ -1495,7 +1489,6 @@ def scene_expressions(gamedata_raw):
 
 
 def scene_expressions_applied(gamedata_raw):
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     entries = {int(e['Hash']): e for e in byml_codec.load(gamedata_raw)['root']['Data']['BoolExp']}
     return all(murmur3(name) in entries and [[int(v) for v in s] for s in entries[murmur3(name)]['Values']] == program

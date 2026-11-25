@@ -19,6 +19,10 @@ values and the spans become N. Not validated in game.
 """
 import io
 from oot_rando.formats.evfl_tools import params_by_event, parse_flow
+from oot_rando.formats import byml_codec
+from oot_rando.formats import msbt
+from oot_rando.formats.inspect_resources import sarc
+from oot_rando.game.extra_sources import event_paths
 
 FLOW = 'Minigame_CatchCucco'
 LOGIC_MODULE = 'Logic/MiniGame_CatchCucco_c69b.logic.module.ainb'
@@ -183,7 +187,6 @@ def _number(span):
 
 def patch_message_file(raw, count):
     """Her message file with ``count`` in place of the number. Returns (bytes, numbers replaced)."""
-    from oot_rando.formats import msbt
     message = msbt.load(raw)
     replaced = 0
     for label in LINES:
@@ -204,8 +207,6 @@ def patch_message_file(raw, count):
 
 def patch_messages(archive, count):
     """A ``Mals`` archive (SARC) with her lines naming ``count``. Returns (bytes, numbers replaced)."""
-    from oot_rando.formats import byml_codec
-    from oot_rando.formats.inspect_resources import sarc
     if check_count(count) == VANILLA_COUNT:
         return archive, 0
     files = dict(sarc(archive))
@@ -217,8 +218,6 @@ def patch_messages(archive, count):
 
 def her_lines(archive):
     """``{label: raw text}`` of her lines with the number, in a ``Mals`` archive."""
-    from oot_rando.formats import msbt
-    from oot_rando.formats.inspect_resources import sarc
     message = msbt.load(dict(sarc(archive))[MESSAGE_FILE])
     return {label: message.get(label) for label in LINES}
 
@@ -254,7 +253,6 @@ def check_messages(count, paths, original, produced):
 def check_seed(manifest, members, original, produced):
     """Verification of a seed's cucco count. ``original``/``produced``: path -> bytes (``.zs``
     files decompressed). Returns the report entries (none for 7); raises on a difference."""
-    from oot_rando.game.extra_sources import event_paths
     count = ((manifest.get('settings') or {}).get('full') or {}).get('chicken_count', VANILLA_COUNT)
     if (manifest.get('skips') or {}).get('cuccos', VANILLA_COUNT) != count:
         raise ValueError('Cucco count differs from the settings.')

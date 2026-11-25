@@ -39,6 +39,13 @@ from oot_rando.catalog.tokens import (  # noqa: F401  (moved to oot_rando.catalo
     got_flag,
 )
 from oot_rando.formats.evfl_tools import case_target, params_by_event, parse_flow
+from oot_rando.formats import byml_codec
+from oot_rando.formats.inspect_resources import sarc
+from oot_rando.game.item_forms import SAME_MODEL
+from oot_rando.game.item_forms import copy_ref
+from oot_rando.game.item_forms import pack_path
+from oot_rando.game.item_forms import resolve_components
+from oot_rando.game.tracking_metadata import add_saved_flags
 ACTION_GUIDE_FLOW = 'Event/EventFlow/ActionGuide.bfevfl.zs'
 ACTION_GUIDE = 'ActionGuide'
 GUIDE_ENTRIES = ('ActionGuide', 'ActionGuideForShop')
@@ -79,7 +86,6 @@ def held_query(actor):
 
 def check_pouch_names(actor_info_raw, gamedata_raw):
     """Every level's pouch name is the one the game uses (and its magic flag a saved Bool)."""
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.soul_adapter import murmur3
     rows = {row['__RowId']: row for row in byml_codec.load(actor_info_raw)['root']}
     saved = {int(e['Hash']) for e in byml_codec.load(gamedata_raw)['root']['Data']['Bool']
@@ -484,7 +490,6 @@ WATCH_NODES = ['SeqQueryGetNonStructGameDataBool', 'Element_BoolSelector', 'SeqQ
 def watch_event_row(settings_raw):
     """EventSetting row requesting the converter entry of ActionGuide (no actor)."""
     import copy
-    from oot_rando.formats import byml_codec
     document = byml_codec.load(settings_raw)
     rows = document['root']
     by_id = {row['__RowId']: row for row in rows}
@@ -503,7 +508,6 @@ def watch_event_row(settings_raw):
 def watch_analyzed_row(info_raw, current):
     """GameAnalyzedEventInfo row listing everything the converter calls. ``current(name)``: raw of a flow."""
     import copy
-    from oot_rando.formats import byml_codec
     from oot_rando.patching.event_info import cached_charts, closure, reachable_transitions
     document = byml_codec.load(info_raw)
     rows = document['root']
@@ -631,16 +635,12 @@ POSE_ASINFO = 'Item_GetDemo'
 
 def pose_lender(family):
     """Item actor whose animation states pose the family's model (same mesh)."""
-    from oot_rando.game.item_forms import SAME_MODEL
     model = FAMILIES[family][3]
     return SAME_MODEL.get(model, model)
 
 
 def pose_parts(read_raw, family):
     """``(files, components, actor_info)`` posing a token like its first level, or None."""
-    from oot_rando.formats import byml_codec
-    from oot_rando.formats.inspect_resources import sarc
-    from oot_rando.game.item_forms import copy_ref, pack_path, resolve_components
     lender = pose_lender(family)
     pack = sarc(read_raw(f'Pack/Actor/{lender}.pack.zs'))
     components = resolve_components(pack, lender, byml_codec)
@@ -676,7 +676,6 @@ def token_specs(tokens, read_raw=None):
 
 def build_token_files(read_raw, tokens, message_archives=()):
     """``(modified, new)`` resources of the token actors, plus their saved conversion flags."""
-    from oot_rando.game.tracking_metadata import add_saved_flags
     from oot_rando.patching.soul_adapter import GAMEDATA, RSDB_FILES, build_item_files
     if not tokens:
         return {}, {}

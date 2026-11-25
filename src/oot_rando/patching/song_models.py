@@ -32,6 +32,8 @@ Not validated in game: the colour parameters are taken as multipliers of the
 harp's albedo.
 """
 import struct
+from oot_rando.formats import byml_codec as codec
+from oot_rando.formats.inspect_resources import sarc
 
 HARP_ACTOR = 'Dm_Item_Sheik_Harp'
 HARP_FMDB = 'Item_Harp_Sheik'
@@ -163,7 +165,6 @@ def tinted_harp(model, keys, rgb):
 # ------------------------------------------------------------------ actors
 def repoint_pack(pack, actor, codec):
     """Song pack bytes whose ModelInfo names the song's harp."""
-    from oot_rando.formats.inspect_resources import sarc
     files = sarc(pack)
     path = model_info_path(actor)
     if path not in files:
@@ -197,7 +198,6 @@ def build_files(read_raw, actors=tuple(SONG_COLOURS)):
 
     ``read_raw(path)`` returns decompressed bytes (modified ones first); ``new``
     values are ``(raw, compression and size template path)``."""
-    from oot_rando.formats import byml_codec as codec
     keys = shader_keys(read_raw(SHADER_NAMES))
     harp = read_raw(HARP_MODEL)
     modified, new = {}, {}

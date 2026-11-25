@@ -18,6 +18,7 @@ different game build stops the generation instead of drawing over the logo.
 import hashlib
 import struct
 import zlib
+from oot_rando.paths import resource
 
 TITLE_BNTX = 'UI/Layout2Archive/Title.Product.100.Nin_Ounce_NVN2.bntx.zs'
 COMMON_BNTX = 'UI/Layout2Archive/Common.Product.100.Nin_Ounce_NVN2.bntx.zs'
@@ -34,7 +35,6 @@ AREA_SHA256 = 'ad5593cd51cb089caf830424301c036d7e4755f95eb4183c7823dcc5b157b553'
 
 def badge_image():
     """(width, height, RGBA bytes) of the badge."""
-    from oot_rando.paths import resource
     raw = zlib.decompress(resource('patching', 'title_badge.rgba.zlib').read_bytes())
     width, height = struct.unpack_from('<HH', raw)
     if width % 4 or height % 4 or len(raw) != 4 + width * height * 4:

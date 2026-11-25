@@ -10,7 +10,7 @@ from oot_rando.randomizer.randomizer_core import Settings, settings_identity
 from oot_rando.randomizer.artifact import is_randomizer_seed
 from oot_rando.randomizer.mods_folder import archive_previous_seeds
 from oot_rando.patching.randomize_kokiri import TITLE
-from oot_rando.formats.evfl_tools import params_by_event, parse_flow
+from oot_rando.formats.evfl_tools import links_to, params_by_event, parse_flow
 
 NUP = os.environ.get('OOT_NUP')
 
@@ -391,8 +391,8 @@ class NupTests(unittest.TestCase):
         self.assertEqual(bypass, {'actor': 'Item_HoverBoot', 'flag': 'RandoCheck.test.boss', 'resume': 'Event49'})
         chart = parse_flow(raw).flowchart
         events = {e.name: e for e in chart.events}
-        self.assertEqual(self.q._predecessors(chart, events['Event22']), [])
-        self.assertEqual([e.name for e, _, _ in self.q._predecessors(chart, events['RandoCollected_Event22'])],
+        self.assertEqual(links_to(chart, events['Event22']), [])
+        self.assertEqual([e.name for e, _, _ in links_to(chart, events['RandoCollected_Event22'])],
                          ['Event22'])   # (only the unreachable add)
         self.assertEqual(events['Event106'].data.nxt.v.name, 'Event49')   # the cutscene goes on
         self.assertEqual(params_by_event(parse_flow(raw)), params_by_event(parse_flow(source)))

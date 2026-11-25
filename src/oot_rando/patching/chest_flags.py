@@ -21,6 +21,7 @@ import io
 
 from oot_rando.formats import byml_codec
 from oot_rando.formats.evfl_tools import params_by_event, parse_flow
+from oot_rando.game.remake_world import is_treasure_game_reward
 
 EVENT_SETTINGS = 'RSDB/EventSetting.Product.111.rstbl.byml.zs'
 ANALYZED = 'RSDB/GameAnalyzedEventInfo.Product.111.rstbl.byml.zs'
@@ -58,7 +59,6 @@ def plan_records(placements, map_root, identity, settings_rows):
     ``map_root(resource)`` → current map root; ``settings_rows``: EventSetting rows by id.
     Returns (records, skipped gids with a reason).
     """
-    from oot_rando.game.remake_world import is_treasure_game_reward
     records, skipped = [], {}
     for placement in placements:
         if placement.get('source') != 'chest' or not placement.get('variants'):

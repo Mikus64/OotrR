@@ -67,6 +67,8 @@ from oot_rando.versions import (  # noqa: F401  (moved to oot_rando.versions, re
     version_key,
     is_newer,
 )
+from oot_rando.ed25519 import verify
+from oot_rando.update_key import PUBLIC_KEY
 
 
 def asset_suffix(platform=sys.platform):
@@ -83,7 +85,6 @@ def executable():
 
 def public_key():
     """Release signing key of this build (32 bytes), or None."""
-    from oot_rando.update_key import PUBLIC_KEY
     try:
         key = bytes.fromhex(PUBLIC_KEY)
     except ValueError:
@@ -190,7 +191,6 @@ def verify_signature(sums, signature, key=None):
     """Whether ``signature`` (raw 64 bytes, or base64) signs ``sums`` with the release key."""
     import base64
     import binascii
-    from oot_rando.ed25519 import verify
     key = key if key is not None else public_key()
     if key is None:
         return False

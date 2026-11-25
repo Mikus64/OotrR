@@ -5,7 +5,8 @@ SHA-256 counter based (rejection sampling), independent of Python's ``random``.
 """
 from collections import Counter, defaultdict
 import hashlib
-from types import SimpleNamespace
+from dataclasses import dataclass
+from typing import Callable
 
 from oot_rando.logic.rules import Logic, age_member, vanilla_placements
 from oot_rando.logic import rando_options
@@ -18,6 +19,17 @@ from oot_rando.game.item_forms import can_take, form_actor, underwater_actor
 from oot_rando.game.extra_sources import match_sources, area_locations
 from oot_rando.patching.soul_adapter import plan_souls, chest_requirements, soul_label
 from oot_rando.patching.song_adapter import POSE_AFTER_CUTSCENE, is_song_actor, song_allowed
+from oot_rando.game.extra_sources import BOSS_HEARTS
+from oot_rando.game.extra_sources import CHILD_WALLET
+from oot_rando.game.extra_sources import scrub_price
+from oot_rando.game.remake_world import FOLDER_AP_DUNGEON as _AP_DUNGEON
+from oot_rando.game.remake_world import rule_members
+from oot_rando.patching.key_adapter import BOSS_KEY_DUNGEONS
+from oot_rando.patching.key_adapter import RING_DUNGEONS
+from oot_rando.patching.key_adapter import ring_item
+from oot_rando.patching.key_adapter import small_key_item
+from oot_rando.patching.key_adapter import small_key_item as _small_key
+from oot_rando.patching.key_adapter import start_logic_items
 
 FILLER_PRIORITY = ('Rupee (1)', 'Rupees (5)', 'Deku Nuts (5)', 'Deku Stick (1)', 'Arrows (5)', 'Bombs (5)',
                    'Rupees (20)', 'Arrows (10)', 'Deku Seeds (30)', 'Bombchus (5)', 'Arrows (30)',
@@ -242,6 +254,36 @@ class FillError(ValueError):
     pass
 
 
+@dataclass
+class FillContext:
+    """Everything :func:`prepare` derives from the options before a fill (read by ``plan``,
+    ``plan_assigned``, the Archipelago bridge and the tests)."""
+    data: object                  # logic.world.World
+    options: dict                 # validated complete-mode options
+    settings: dict                # settings of the AP rules (rando_options.ap_settings)
+    logic: object                 # logic.rules.Logic, with the remake's extra requirements
+    matches: dict                 # group id -> matched source entry (every source in scope)
+    shuffled: dict                # group id -> entry of the sources that take a shuffled item
+    pool: list                    # items to place, one per shuffled source
+    relevant: set                 # items the logic can need
+    progression: list             # relevant items of the pool, placed first
+    logic_locations: list         # shuffled group ids that are locations of the logic (sorted)
+    restricted_dungeon: dict      # dungeon-bound item -> (zone rule, dungeon)
+    allowed: Callable             # allowed(item, group id): placement rule of a source
+    sweep: Callable               # sweep(placements, extra items) -> (state, collected, spheres)
+    base: dict                    # AP location -> vanilla item (logic.rules.vanilla_placements)
+    souls: dict                   # soul plan (patching.soul_adapter.plan_souls)
+    unmatched_ap: list            # AP locations without a remake source
+    natives: dict                 # group id -> unshuffled source giving a fixed progressive level
+    starting: object              # Counter of the items held at start (removed keys, starting items)
+    report: Callable              # progress callback
+    start_items: list
+    start_actors: list
+    castle_junk: list             # skipped child castle sources: always junk
+    is_key: Callable
+    is_mapcompass: Callable
+
+
 def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress=None, forced=None,
             extra=None):
     """Everything before the fill: matched sources, shuffled locations, item pool and rules.
@@ -276,7 +318,6 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
     location_requirements = {k: set(v) for k, v in souls['location_requirements'].items()}
     # Scrubs keep their remake price with 'regular': above the child wallet, buying
     # needs the first wallet upgrade (the AP rules do not know these prices).
-    from oot_rando.game.extra_sources import scrub_price, CHILD_WALLET
     for gid, entry in matches.items():
         if entry['source'] == 'scrub' and entry['kind'] != 'junk':
             entry['price_after'] = scrub_price(options['shuffle_scrubs'], seed_key, entry)
@@ -293,9 +334,6 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
     # A key ring may only land where its dungeon's doors cannot lock it in: the matching of
     # remake sources to AP locations never checked the remake's own chain locks, so every
     # location of a ring dungeon needs one key of it (the ring), except verified spots.
-    from oot_rando.patching.key_adapter import small_key_item as _small_key
-    from oot_rando.game.extra_sources import BOSS_HEARTS
-    from oot_rando.game.remake_world import FOLDER_AP_DUNGEON as _AP_DUNGEON
     for _folder in key_ring_folders(options, seed_key):
         for _region in data.regions:
             # Boss rooms carry no dungeon tag: they lie behind the dungeon's own doors too.
@@ -330,7 +368,6 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
                 key_dungeons.add(item)
 
     # --- key rings and dungeon-specific boss keys (key_adapter) ---------------
-    from oot_rando.patching.key_adapter import RING_DUNGEONS, BOSS_KEY_DUNGEONS, ring_item, small_key_item
     ring_folders = key_ring_folders(options, seed_key)
     ring_keys = {small_key_item(folder): ring_item(folder) for folder in ring_folders}
     specific_boss = options['shuffle_bosskeys'] in ('any_dungeon', 'keysanity')
@@ -341,7 +378,6 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
     ring_dungeon_keys = {small_key_item(folder) for folder in RING_DUNGEONS}
     # "Removed" keys: every key is held from the start (start_dungeon_values), the
     # key chests hold filler instead.
-    from oot_rando.patching.key_adapter import start_logic_items
     removed_keys = start_logic_items(options)
 
     def in_scope(entry):
@@ -419,7 +455,6 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
         if entry['kind'] in ('exact', 'group'):
             for location in entry['ap']:
                 base[location] = None
-        from oot_rando.game.remake_world import rule_members
         logic.virtual[vname(entry['id'])] = rule_members(entry) + list(entry.get('guards', []))
         if entry['id'] not in shuffled:
             base[vname(entry['id'])] = entry['vanilla']
@@ -641,7 +676,7 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
         state = logic.new_state(inventory)
         return _sweep_with_requirements(logic, placements, state)
 
-    return SimpleNamespace(
+    return FillContext(
         data=data, options=options, settings=settings, logic=logic, matches=matches, shuffled=shuffled,
         pool=pool, relevant=relevant, progression=progression, logic_locations=logic_locations,
         restricted_dungeon=restricted_dungeon, allowed=allowed, sweep=sweep, base=base, souls=souls,
@@ -773,8 +808,6 @@ STARTING_UNSUPPORTED = ('Map (', 'Compass (', 'Small Key (', 'Boss Key (', 'Smal
 
 def key_ring_folders(options, seed_key):
     """Dungeon folders whose small keys become a key ring."""
-    from oot_rando.patching.key_adapter import RING_DUNGEONS
-    from oot_rando.game.remake_world import FOLDER_DUNGEON
     folders = sorted(RING_DUNGEONS)
     mode = options['key_rings']
     if mode == 'all':
@@ -860,7 +893,6 @@ def plan_assigned(data, options, groups, enemies, seed_key, assigned, open_fores
 
 
 def _dungeon_name(folder):
-    from oot_rando.game.remake_world import FOLDER_DUNGEON
     return FOLDER_DUNGEON.get(folder)
 
 

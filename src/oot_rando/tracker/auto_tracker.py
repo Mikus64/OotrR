@@ -12,6 +12,9 @@ from oot_rando.tracker.manual_tracker import ManualTracker
 from oot_rando.formats.save_file import load_snapshot
 from oot_rando.paths import state_dir
 from oot_rando.pc_port import KNOWN_EXES, port_exe
+from oot_rando.game.remake_world import ZONE_LABELS
+from oot_rando.patching.key_adapter import dungeon_keys
+from oot_rando.patching.soul_adapter import soul_name
 
 
 NAND_SAVE = ('nand', 'user', 'save')
@@ -115,8 +118,6 @@ def soul_zones(metadata, counts):
     A family soul is listed in every zone where its enemies appear. Seeds tracked
     before the zones were recorded show their souls under a single group.
     """
-    from oot_rando.game.remake_world import ZONE_LABELS
-    from oot_rando.patching.soul_adapter import soul_name
     metadata = metadata or {}
     souls = metadata.get('souls')
     if souls is None:
@@ -151,7 +152,6 @@ class TrackerSession:
         self._automatic, self._access = set(), {}
         self._soul_reasons = {}
         self._inventory = (Counter(), set())
-        from oot_rando.patching.key_adapter import dungeon_keys
         self._keys = dungeon_keys((self.metadata or {}).get('keys'), None)   # 0 found until a save is read
         self._fingerprint = None
         self._logic, self._logic_error = None, ''

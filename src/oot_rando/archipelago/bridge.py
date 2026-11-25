@@ -16,6 +16,24 @@ from collections import Counter
 import copy
 import hashlib
 import json
+from oot_rando.game.extra_sources import area_locations
+from oot_rando.game.remake_world import PROGRESSIVE
+from oot_rando.game.remake_world import source_age
+from oot_rando.game.remake_world import zone_label
+from oot_rando.logic import rando_options
+from oot_rando.logic.rando_options import AP_APP_SECTION
+from oot_rando.logic.rando_options import OPTIONS
+from oot_rando.logic.rando_options import validate
+from oot_rando.logic.rules import age_member
+from oot_rando.logic.world import World
+from oot_rando.patching.ap_item import ap_item
+from oot_rando.patching.ap_mailbox import records
+from oot_rando.patching.soul_adapter import chest_requirements
+from oot_rando.randomizer.full_randomizer import check_name
+from oot_rando.randomizer.full_randomizer import entry_zone
+from oot_rando.randomizer.full_randomizer import prepare
+from oot_rando.randomizer.full_randomizer import starting_unsupported
+from oot_rando.randomizer.full_randomizer import vname
 
 GAME = 'OoT Remake'
 CATALOG_VERSION = 3   # 3: native AI combat dependencies for soul progression
@@ -70,7 +88,6 @@ def ap_option_specs():
     ``open_forest`` is a setting of the application, not of the full randomizer:
     it is added here because it changes the logic.
     """
-    from oot_rando.logic import rando_options
     specs = [{'name': 'open_forest', 'kind': 'bool', 'label': 'Open the way (Kokiri Forest exit)',
               'default': True, 'values': [False, True], 'help': 'Mido no longer blocks the forest exit.'}]
     for option in rando_options.OPTIONS:
@@ -86,7 +103,6 @@ def ap_option_specs():
 
 def full_options(values):
     """AP option values (by remake name) → (full randomizer options, open_forest)."""
-    from oot_rando.logic import rando_options
     values = dict(values)
     open_forest = bool(values.pop('open_forest', True))
     options = rando_options.defaults()
@@ -98,7 +114,6 @@ def full_options(values):
 
 def player_yaml(values, open_forest, name='Player'):
     """Archipelago player YAML of the ``OoT Remake`` game for these application settings."""
-    from oot_rando.logic import rando_options
     values = rando_options.validate(values, supported_only=True)
     current = dict(values, open_forest=open_forest)
     safe = ''.join(ch for ch in name if ch.isalnum() or ch in '_-') or 'Player'
@@ -127,7 +142,6 @@ def to_ap_yaml(values, name='Player', open_forest=True):
     ``OoT Remake application`` section, which Archipelago ignores and
     :func:`oot_rando.logic.rando_options.from_ap_yaml` reads back, so the export round-trips exactly.
     """
-    from oot_rando.logic.rando_options import AP_APP_SECTION, OPTIONS, validate
     values = validate(values, supported_only=True)
     exposed = {spec['name'] for spec in ap_option_specs()} | {'start_inventory_from_pool'}
     lines = [player_yaml(values, open_forest, name).rstrip('\n'),
@@ -154,14 +168,11 @@ def to_ap_yaml(values, name='Player', open_forest=True):
 # ------------------------------------------------------------------ catalog
 def location_name(data, entry, gid):
     """Same name as the tracker and the spoiler (``full_randomizer.check_name``)."""
-    from oot_rando.randomizer.full_randomizer import entry_zone, check_name
-    from oot_rando.game.remake_world import zone_label
     return check_name(entry, gid, zone_label(entry_zone(data, entry, gid)) or entry['folder'])
 
 
 def _catalog_variants():
     """Option sets whose union covers every location and item the remake can shuffle."""
-    from oot_rando.logic import rando_options
     base = rando_options.defaults()
     everything = dict(base, shuffle_chests=True, shuffle_kokiri_sword=True, shuffle_remake_items=True,
                       shopsanity='4', tokensanity='all', shuffle_scrubs='low', shuffle_freestanding_items='all',
@@ -181,7 +192,6 @@ def _catalog_variants():
 
 def build_catalog(data, groups, enemies, extra, game_build, progress=None):
     """Catalog shipped in the apworld. ``data`` is a :class:`World`."""
-    from oot_rando.randomizer.full_randomizer import prepare
     report = progress or (lambda message: None)
     names, items = {}, set(data.item_table)
     for index, options in enumerate(_catalog_variants()):
@@ -229,8 +239,6 @@ class PlayerWorld:
     CACHE_SIZE = 4096
 
     def __init__(self, catalog, values, seed_key):
-        from oot_rando.logic.world import World
-        from oot_rando.randomizer.full_randomizer import prepare, vname
         data = World()
         if data.fingerprint() != catalog['world']:
             raise ValueError('The apworld logic does not match its catalog: rebuild the apworld.')
@@ -266,10 +274,6 @@ class PlayerWorld:
         These are tracker estimates, not new progression locations. Unknown areas
         stay unreachable rather than inheriting Archipelago's always-true rule.
         """
-        from oot_rando.game.extra_sources import area_locations
-        from oot_rando.game.remake_world import source_age
-        from oot_rando.logic.rules import age_member
-        from oot_rando.patching.soul_adapter import chest_requirements
         if all(self.in_logic.values()):
             return {}
         logic = self.c.logic
@@ -321,8 +325,6 @@ class PlayerWorld:
         opening; a progressive copy takes a level of the family, so it must come
         from the pool (the number of levels is fixed).
         """
-        from oot_rando.game.remake_world import PROGRESSIVE
-        from oot_rando.randomizer.full_randomizer import starting_unsupported
         names = set(extra) | set(from_pool)
         bad = sorted(n for n in names if starting_unsupported(n))
         if bad:
@@ -348,7 +350,6 @@ class PlayerWorld:
 
     def can_hold(self, gid, item=None):
         """Whether location ``gid`` can give ``item`` (None: another player's item)."""
-        from oot_rando.patching.ap_item import ap_item
         return self.c.allowed(ap_item('?') if item is None else item, gid)
 
     def reach(self, counts):
@@ -384,7 +385,6 @@ class PlayerWorld:
             raise ValueError('Every shuffled location must hold an item.')
         # Every item found in another world must be one the game can be handed
         # (patching.ap_mailbox): fail at generation, not with a softlock in game.
-        from oot_rando.patching.ap_mailbox import records
         records(remote)
         return {'format': PATCH_FORMAT, 'version': PATCH_VERSION, 'game': GAME, 'game_build': game_build,
                 'world': self.catalog['world'], 'scan': self.catalog['scan'],
@@ -482,13 +482,11 @@ def _label(placement):
 
 def assigned_items(patch):
     """gid → item to place in this game (another player's item → its Archipelago medallion)."""
-    from oot_rando.patching.ap_item import ap_item
     return {gid: (p['item'] if p['own'] else ap_item(_label(p))) for gid, p in patch['placements'].items()}
 
 
 def foreign_items(patch):
     """Planner item of each foreign item → (item name, player), for the get-item texts."""
-    from oot_rando.patching.ap_item import ap_item
     return {ap_item(_label(p)): (p['item'], p.get('player', '?'))
             for p in patch['placements'].values() if not p['own']}
 

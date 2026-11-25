@@ -47,6 +47,9 @@ falls back on the caller's position in the other bancs.
 import copy
 import struct
 import uuid
+from oot_rando.formats import byml_codec
+from oot_rando.formats import msbt
+from oot_rando.formats.inspect_resources import sarc
 
 SAVE_WARP_FLAG = 'RandoSaveWarp'
 ON_LOAD_MODULE = 'Sequence/OnLoadBancParam.module.ainb'
@@ -366,16 +369,12 @@ def add_system_button(raw):
 
 
 def patch_layout_archive(sarc_raw):
-    from oot_rando.formats import byml_codec
-    from oot_rando.formats.inspect_resources import sarc
     files = dict(sarc(sarc_raw))
     files[SYSTEM_LAYOUT] = add_system_button(files[SYSTEM_LAYOUT])
     return byml_codec.build_sarc(files)
 
 
 def add_button_text(sarc_raw, text=BUTTON_TEXT):
-    from oot_rando.formats import byml_codec, msbt
-    from oot_rando.formats.inspect_resources import sarc
     files = dict(sarc(sarc_raw))
     message = msbt.load(files[MENU_TEXT])
     if 'Pa_System_00-Pa_Button_04-T_Btn_00' not in message.labels:
@@ -649,7 +648,6 @@ def rewire_on_load(raw):
 
 def set_always_start(raw, value):
     """GameBancParam with ``IsAlwaysStartFromStartPos`` set to ``value``."""
-    from oot_rando.formats import byml_codec
     document = byml_codec.load(raw)
     if ALWAYS_START in document['root']:
         raise ValueError('GameBancParam already sets ' + ALWAYS_START)
@@ -668,7 +666,6 @@ def patch_save_warp(read, messages=(), read_archive=None):
         files[LAYOUT_ARCHIVE] = patch_layout_archive(read_archive(LAYOUT_ARCHIVE))
         for path in messages:
             files[path] = add_button_text(read_archive(path))
-    from oot_rando.formats import byml_codec
     parents = {}
     for name in ZONES + VANILLA_LOAD:
         parent = byml_codec.load(read(banc_param(name)))['root'].get('$parent')

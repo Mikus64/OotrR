@@ -1,6 +1,7 @@
 """Market lost dog availability and one-time reward."""
 from oot_rando.patching.quest_guard import CHALLENGES  # noqa: F401  (re-exported: lost_dog.CHALLENGES)
 from oot_rando.formats.evfl_tools import case_target, event_params_of
+from oot_rando.formats import byml_codec
 
 FLOW = 'Event/EventFlow/SubEvent_FindRichard.bfevfl.zs'
 MODULE = 'Logic/Market_Child_Prefab_f3a2.logic.module.ainb'
@@ -13,7 +14,6 @@ RECEIPT = 'SubEvent_FindRichard_GetHeartPiece'
 
 def quest_from_start(raw):
     """Enable the native Ready/Step01 schedules from the first child visit."""
-    from oot_rando.formats import byml_codec
     document = byml_codec.load(raw)
     rows = [r for r in document['root'] if r['__RowId'].endswith(
         '/SubEvent_FindRichard.game__challenge__Challenge.gyml')]

@@ -5,6 +5,8 @@ from pathlib import Path, PurePosixPath
 
 from oot_rando.patching.randomize_kokiri import BUILD, RESTBL, TITLE
 from oot_rando.randomizer.randomizer_core import Settings, settings_identity
+from oot_rando.versions import is_newer
+from oot_rando.versions import version_key
 
 
 # (generator_version, adapter_version) of the seeds this version still opens.
@@ -116,7 +118,6 @@ def regeneration_settings(manifest, current_version=None):
     by this version, or by a newer one, needs no regeneration. The settings (seed name, full
     options, categories, Archipelago patch...) are read back unchanged, so the regenerated
     seed keeps its name and settings."""
-    from oot_rando.versions import is_newer, version_key
     if current_version is None:
         from oot_rando import __version__ as current_version
     if not isinstance(manifest, dict):

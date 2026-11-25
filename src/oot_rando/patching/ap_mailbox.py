@@ -32,6 +32,9 @@ In-game test 12/11 (Hookshot): signal → pose and text at once. A consumable ac
 import copy
 import hashlib
 import io
+from oot_rando.game.item_forms import form_actor
+from oot_rando.game.remake_world import PROGRESSIVE
+from oot_rando.game.remake_world import item_actor
 
 PREFIX = 'RandoAP_'
 RECV, GOT = 'RandoAP.Recv.', 'RandoAP.Got.'
@@ -54,8 +57,6 @@ def record_key(player, location):
 
 def records(remote):
     """One record per item of this game found in another world (the patch's ``remote``)."""
-    from oot_rando.game.item_forms import form_actor
-    from oot_rando.game.remake_world import PROGRESSIVE
     result, seen = [], set()
     for entry in remote:
         key = record_key(entry['player'], entry['location'])
@@ -106,7 +107,6 @@ def remote_actor(item):
     received ones too, see :func:`key_items`), never the generic remake keys, which the
     game credits to the dungeon Link stands in (none outside a dungeon).
     """
-    from oot_rando.game.remake_world import item_actor
     from oot_rando.patching.key_adapter import BOSS_KEY_DUNGEONS, DUNGEON_FOLDER, boss_actor
     if item.startswith('Boss Key ('):
         folder = DUNGEON_FOLDER.get(item[len('Boss Key ('):-1])

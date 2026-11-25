@@ -22,6 +22,11 @@ import struct
 
 from oot_rando.catalog.hashing import murmur3
 from oot_rando.formats.save_file import decode_progress, load_snapshot, SaveFormatError
+from oot_rando.pc_port import KNOWN_EXES
+from oot_rando.pc_port import is_port_process
+from oot_rando.system import emulator_exes
+from oot_rando.versions import is_newer
+from oot_rando.versions import version_key
 
 BACKUP_SUFFIX = '.backup-'
 
@@ -92,8 +97,6 @@ def running_game(processes=None):
     """Exe name of a running game (PC port or emulator), or None.
 
     ``processes``: image paths of the running processes (default: the system's)."""
-    from oot_rando.pc_port import KNOWN_EXES, is_port_process
-    from oot_rando.system import emulator_exes
     if processes is None:
         processes = process_images()
     names = set(KNOWN_EXES) | emulator_exes()
@@ -224,7 +227,6 @@ def migration_values(manifest, previous=None):
     The fixes the saves may lack are those newer than :func:`saves_from` of the new seed
     when it recorded the origin of the game it continues, else of ``previous`` (manifest of
     the seed it replaced); unknown: every fix."""
-    from oot_rando.versions import is_newer
     since = manifest.get('saves_from') or saves_from(previous)
     values = dict(manifest.get('start_values') or {})
     for version, fix in sorted(SAVE_FIXES, key=lambda step: _version_order(step[0])):
@@ -238,7 +240,6 @@ def migration_values(manifest, previous=None):
 
 
 def _version_order(version):
-    from oot_rando.versions import version_key
     return version_key(version) or ((0, 0, 0), 0, ())
 
 

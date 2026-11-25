@@ -35,6 +35,8 @@ import struct
 from oot_rando.formats.inspect_resources import Byml
 from oot_rando.patching.randomize_kokiri import slot
 from oot_rando.formats.evfl_tools import links_to, next_events, params_by_event, parse_flow
+from oot_rando.formats import byml_codec
+from oot_rando.formats.inspect_resources import sarc
 
 INTRO = 'Event/EventSetting/EventSettingComponentList/Dm_Kokiri_0000.engine__event__EventSettingComponentList.bgyml'
 INTRO_PARENT = 'Event/EventSetting/EventSettingComponentList/RecordMovieTimelineEvent.engine__event__EventSettingComponentList.bgyml'
@@ -1675,7 +1677,6 @@ def open_kokiri_shop(raw, hidden_flag):
     marker set at the end of the opening). Actors are never removed, so no
     reference, group or patched index changes. Returns (raw, changed count).
     """
-    from oot_rando.formats import byml_codec
     document = byml_codec.load(raw)
     changed = 0
     for actor in document['root'].get('Actors', []):
@@ -1721,7 +1722,6 @@ def keep_mido_at_post(raw):
     """Mido keeps guarding the Deku Tree path until his talk lowers the wall.
 
     Returns (new BYML bytes, summary)."""
-    from oot_rando.formats import byml_codec
     document = byml_codec.load(raw)
     root = document['root']
     states = root['ConditionalSchedule']
@@ -1750,8 +1750,6 @@ def release_kokiri_shop_goods(pack_raw):
     set; five of the eight Kokiri goods wait for ``Meet_DekuTree_IsAfter_Step02_Exp``.
     Only those Release blocks change. Returns (new SARC bytes, changed goods).
     """
-    from oot_rando.formats import byml_codec
-    from oot_rando.formats.inspect_resources import sarc
     files = dict(sarc(pack_raw))
     changed = 0
     for name in sorted(files):
@@ -1792,8 +1790,6 @@ BOMB_LIFT_PACKS = tuple(f'Pack/Actor/{name}.pack.zs' for name in (
 
 def free_bomb_lift(pack_raw):
     """Let Link hold his own bombs without the Goron Bracelet. Returns (SARC bytes, changed)."""
-    from oot_rando.formats import byml_codec
-    from oot_rando.formats.inspect_resources import sarc
     files = dict(sarc(pack_raw))
     if BOMB_LIFTABLE not in files:
         return pack_raw, 0
