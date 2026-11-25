@@ -43,7 +43,7 @@ validé avant d'être codé.
 | Maquette | Verdict | Mise en œuvre |
 |---|---|---|
 | M1 Accueil fiable | Validée | Faite |
-| M2 Nouvelle seed | À revoir → v2 (un onglet par groupe, le premier sélectionné) | En attente de validation de la v2 |
+| M2 Nouvelle seed | À revoir → v2 (un onglet par groupe, le premier sélectionné), validée | Faite |
 | M3 Tracker | Validée | Faite |
 | M4 Spoiler | Validée | Faite |
 | M5 Multiworld | Validée | Faite |
@@ -73,6 +73,16 @@ validé avant d'être codé.
 - **Multiworld** : étape 3 verrouillée tant qu'aucune seed Archipelago n'est ouverte ; journal et chat une fois
   connecté ; étape 1 valide tant que les réglages exportés n'ont pas changé (un export d'une version
   précédente, sans trace de ses réglages, est signalé : il faut l'exporter à nouveau).
+- **Nouvelle seed** : barre d'action toujours visible (preset, nombre de changements, « Reset to … »,
+  « Copy seed string », « Generate and install », puis l'étape et la progression pendant la génération) ;
+  groupes en onglets verticaux, un seul affiché, le premier à l'ouverture (flèches haut/bas) ; recherche (`/`)
+  dans tous les groupes avec le nombre de résultats par onglet ; mention « changed » et ↺ par réglage, nombre
+  de changements par onglet ; le ⓘ déplie l'aide sous la ligne (clic, Entrée, Espace) ; inventaire de départ
+  en étiquettes avec suggestions, nom inconnu signalé tout de suite (key rings vérifiés en quittant le champ) ;
+  presets en groupe radio au clavier ; après génération, un toast « Open the tracker ». Les libellés passent à
+  la ligne selon la place laissée par les contrôles (rien n'est coupé à 1 040 px). Les deux réglages
+  généraux du groupe Open world (forêt ouverte, skulltulas de nuit) ne font pas partie des presets : ils ne
+  portent pas la mention « changed ».
 - **Setup** : chemins vérifiés sous leur champ, émulateurs supplémentaires dans « Advanced », une seule carte
   Updates, interrupteur My Games (l'entrée de menu n'apparaît que s'il est activé).
 

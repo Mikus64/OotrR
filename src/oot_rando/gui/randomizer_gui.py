@@ -11,6 +11,7 @@ import threading
 import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import font as tkfont
 
 from oot_rando.archipelago.bridge import to_ap_yaml
 from oot_rando.randomizer.randomizer_core import Settings, CHECKS, GENERATOR_VERSION, settings_from_patch
@@ -27,6 +28,7 @@ from oot_rando.patching.randomize_kokiri import POOL, TITLE
 from oot_rando.game.randomizer_categories import CATEGORIES
 from oot_rando.game.world_maps import SAFE_CATEGORIES
 from oot_rando.logic import rando_options
+from oot_rando.logic.rando_options import STARTABLE_ITEMS
 from oot_rando.paths import data_dir, error_log, seeds_dir, state_dir, write_error_log
 from oot_rando.gui import theme
 from oot_rando.gui.parties_page import PartiesPage
@@ -262,16 +264,18 @@ class ListVar:
 
 
 class ItemsVar:
-    """Text field holding a starting inventory (``"Hover Boots, Bow x2"``) as a dict."""
+    """A starting inventory (``{'Hover Boots': 1, 'Bow': 2}``), shown as removable tags."""
 
     def __init__(self):
-        self.text = tk.StringVar(value='')
+        self.items, self.listeners = {}, []
 
     def get(self):
-        return rando_options.parse_items(self.text.get())
+        return dict(self.items)
 
     def set(self, value):
-        self.text.set(rando_options.format_items(value or {}))
+        self.items = dict(value or {})
+        for listener in self.listeners:
+            listener()
 
 
 
@@ -379,7 +383,9 @@ class Application(PartiesPage):
         self.spoiler_tab = self.tab('spoiler', 'Spoiler', 'Spoiler', 'Every reward of the open seed. Reveal only if you want to know.')
         self.help_tab = self.tab('help', 'Help', 'Help', 'How the application works, step by step.')
         self.tabs.bind('<<NotebookTabChanged>>', lambda event: self.page_changed())
-        self.home_body, self.settings_body = self.scrollable(self.home_tab), self.scrollable(self.settings_tab)
+        self.home_body = self.scrollable(self.home_tab)
+        self.build_action_bar()   # under the settings, never scrolled away
+        self.settings_body = self.scrollable(self.settings_tab)
         self.multiworld_body, self.setup_body = self.scrollable(self.multiworld_tab), self.scrollable(self.setup_tab)
         self.build_home()
         self.build_parties()
@@ -505,6 +511,8 @@ class Application(PartiesPage):
                 if key != self.current_page:
                     self.current_page = key
                     self.clear_notices()
+                    if self.busy:
+                        self.show_status_bar()
 
     def shortcut_page(self, number):
         """Ctrl+1 … Ctrl+9: the menu entries, in their order on screen."""
@@ -537,16 +545,21 @@ class Application(PartiesPage):
         if self.notice_area.winfo_manager():
             self.notice_area.pack_forget()
 
-    def show_status_bar(self, shown):
-        """The step of a long job (generation, download) and a moving bar; hidden otherwise."""
-        if shown and not self.status_bar.winfo_manager():
+    def show_status_bar(self, shown=None):
+        """The step of a long job (generation, download) and a moving bar; hidden otherwise.
+        On New seed the action bar shows the step instead."""
+        working = self.busy or self.updating == 'install'
+        visible = working and not (self.busy and self.current_page == 'newseed')
+        if visible and not self.status_bar.winfo_manager():
             self.status_bar.pack(side='bottom', fill='x', pady=(12, 0), padx=(0, PAGE_GUTTER), before=self.tabs)
             self.progress.pack(side='right', padx=(12, 0))
             self.progress.start()
-        elif not shown and self.status_bar.winfo_manager() and not self.busy and self.updating != 'install':
+        elif not visible and self.status_bar.winfo_manager():
             self.progress.stop()
             self.progress.pack_forget()
             self.status_bar.pack_forget()
+        self.update_action_bar()
+
 
     def copy_text(self, text):
         self.root.clipboard_clear()
@@ -934,24 +947,67 @@ class Application(PartiesPage):
             ttk.Label(row, text=TRACKER_KINDS.get(check.get('category', ''), ''), style='Small.TLabel').pack(side='right')
 
     def build_seed_row(self, parent):
-        box = self.card(parent, 'Seed name', 'The same seed name and settings reproduce the same game.')
+        box = ttk.Frame(parent, style='Card.TFrame', padding=(20, 12, 20, 12))
+        box.pack(fill='x', pady=(0, 14))
         row = self.buttons(box)
+        ttk.Label(row, text='SEED NAME', style='Field.TLabel').pack(side='left', padx=(0, 12))
         ttk.Entry(row, textvariable=self.seed).pack(side='left', fill='x', expand=True)
         ttk.Button(row, text='Random', command=lambda: self.seed.set(secrets.token_hex(8))).pack(side='left', padx=(8, 0))
-        row = self.buttons(box, pady=(8, 0))
-        ttk.Label(row, text='Seed string: the seed name and every setting in one text to share.',
-                  style='Muted.TLabel').pack(side='left')
-        ttk.Button(row, text='Paste a seed string…', command=self.import_seed_string).pack(side='right')
-        ttk.Button(row, text='Copy seed string', command=self.copy_seed_string).pack(side='right', padx=(0, 8))
+        ttk.Button(row, text='Paste a seed string…', command=self.import_seed_string).pack(side='left', padx=(8, 0))
 
-    def build_generate_section(self, parent):
-        box = self.card(parent)
-        row = self.buttons(box)
-        self.generate_button = ttk.Button(row, text='Generate and install', style='Accent.TButton', command=self.generate)
+
+    def build_action_bar(self):
+        """New seed: the adventure, its changes and Generate, always in view under the settings."""
+        bar = self.action_bar = ttk.Frame(self.settings_tab, style='Card.TFrame', padding=(22, 12, 22, 12))
+        bar.pack(side='bottom', fill='x', padx=(0, PAGE_GUTTER), pady=(10, 0))
+        left = ttk.Frame(bar)
+        left.pack(side='left', fill='x', expand=True)
+        top = ttk.Frame(left)
+        top.pack(anchor='w')
+        self.action_preset = ttk.Label(top, style='Value.TLabel')
+        self.action_preset.pack(side='left')
+        self.action_changes = ttk.Label(top, style='Changed.TLabel')
+        self.action_reset = ttk.Button(top, style='Link.TButton', command=self.reset_to_preset)
+        self.action_note = ttk.Label(left, style='Small.TLabel', wraplength=360, justify='left')
+        self.action_note.pack(anchor='w', pady=(2, 0))
+        self.action_progress = ttk.Progressbar(left, mode='indeterminate', length=280)
+        self.generate_button = ttk.Button(bar, text='Generate and install', style='Accent.TButton', command=self.generate)
         self.generate_button.pack(side='right')
-        ttk.Label(row, text='Close the game first. The previous seed is archived.', style='Muted.TLabel').pack(side='right', padx=(0, 16))
-        self.log = tk.Text(box, height=5, wrap='word', state='disabled', padx=12, pady=10)
-        return box
+        ttk.Button(bar, text='Copy seed string', command=self.copy_seed_string).pack(side='right', padx=(0, 8))
+        self.log = tk.Text(bar, height=5, wrap='word', state='disabled', padx=12, pady=10)   # job steps, kept off screen
+        self.status.trace_add('write', lambda *args: self.update_action_bar())
+        self.seed.trace_add('write', lambda *args: self.update_action_bar())
+
+    def update_action_bar(self):
+        if not hasattr(self, 'action_bar') or not hasattr(self, 'setting_rows'):
+            return
+        names = dict((key, title) for key, title, _ in self.PRESET_CARDS)
+        base = names.get(self.base_preset, 'Custom')
+        changed = sum(self.changed_count.values()) if hasattr(self, 'changed_count') else 0
+        self.action_preset.configure(text=base)
+        if changed:
+            self.action_changes.configure(text=f'+ {changed} change' + ('s' if changed > 1 else ''))
+            self.action_reset.configure(text=f'Reset to {base}')
+            if not self.action_changes.winfo_manager():
+                self.action_changes.pack(side='left', padx=(8, 0))
+                self.action_reset.pack(side='left', padx=(8, 0))
+        else:
+            self.action_changes.pack_forget()
+            self.action_reset.pack_forget()
+        if self.busy and self.current_page == 'newseed':
+            self.action_note.configure(text=self.status.get())
+            if not self.action_progress.winfo_manager():
+                self.action_progress.pack(anchor='w', pady=(4, 0))
+                self.action_progress.start()
+            self.generate_button.configure(text='Generating…')
+        else:
+            seed = self.seed.get().strip() or '?'
+            self.action_note.configure(text=f'Seed {seed} · Close the game first; the previous seed is archived.')
+            if self.action_progress.winfo_manager():
+                self.action_progress.stop()
+                self.action_progress.pack_forget()
+            self.generate_button.configure(text='Generate and install')
+
 
     PRESET_CARDS = [('prudent', 'Chests only', 'A gentle first run: chests are shuffled, keys and enemies stay as usual.'),
                     ('ap_defaults', 'Classic', 'The standard Archipelago rules. The recommended balance.'),
@@ -961,31 +1017,38 @@ class Application(PartiesPage):
         parent = self.settings_body
         self.full_enabled = tk.BooleanVar(value=True)
         self.full_vars, self.category_controls = {}, {}
-        self.customize_label, self.customize_hint = tk.StringVar(value='Customize settings  ▸'), tk.StringVar()
+        self.base_preset = 'ap_defaults'   # the preset the "changed" marks compare with
+        self.setting_rows, self.setting_cards, self.setting_nav = {}, {}, {}
+        self.help_rows, self.changed_count = {}, {}
+        self.setting_query = tk.StringVar()
+        self.setting_group = None
+        # Presets: a radio group (Tab to reach it, arrows to move, Enter or Space to choose).
         grid = ttk.Frame(parent, style='Page.TFrame')
         grid.pack(fill='x', pady=(0, 14))
         self.preset_cards = {}
+        keys = [key for key, _, _ in self.PRESET_CARDS]
         for column, (key, name, text) in enumerate(self.PRESET_CARDS):
             grid.columnconfigure(column, weight=1, uniform='presets')
-            box = ttk.Frame(grid, style='Card.TFrame', padding=(18, 18, 18, 18), cursor='hand2')
-            box.grid(row=0, column=column, sticky='nsew', padx=(0 if column == 0 else 6, 0 if column == 2 else 6))
-            art = tk.Canvas(box, width=180, height=76, highlightthickness=0, background=self.colors['green_soft'])
+            ring = tk.Frame(grid, background=self.colors['page'], highlightthickness=2, takefocus=1,
+                            highlightbackground=self.colors['page'], highlightcolor=self.colors['gold'])
+            ring.grid(row=0, column=column, sticky='nsew', padx=(0 if column == 0 else 4, 0 if column == 2 else 4))
+            box = ttk.Frame(ring, style='Card.TFrame', padding=(16, 14, 16, 14), cursor='hand2')
+            box.pack(fill='both', expand=True)
+            art = tk.Canvas(box, width=150, height=58, highlightthickness=0, background=self.colors['green_soft'])
             art.pack(fill='x')
             art.bind('<Configure>', lambda event, a=art, k=key: theme.preset_art(a, k, self.colors))
-            widgets = [box, art, ttk.Label(box, text=name, style='Preset.TLabel'),
+            widgets = [ring, box, art, ttk.Label(box, text=name, style='Preset.TLabel'),
                        ttk.Label(box, text=text, style='Small.TLabel', wraplength=200, justify='left')]
-            widgets[2].pack(anchor='w', pady=(12, 2))
-            widgets[3].pack(anchor='w')
+            widgets[3].pack(anchor='w', pady=(8, 2))
+            widgets[4].pack(anchor='w')
             for widget in widgets:
-                widget.bind('<Button-1>', lambda event, k=key: self.apply_full(rando_options.preset(k), enable=True))
-            self.preset_cards[key] = (box, art)
+                widget.bind('<Button-1>', lambda event, k=key: self.choose_preset(k))
+            for sequence in ('<Return>', '<space>'):
+                ring.bind(sequence, lambda event, k=key: self.choose_preset(k))
+            for sequence, step in (('<Left>', -1), ('<Right>', 1), ('<Up>', -1), ('<Down>', 1)):
+                ring.bind(sequence, lambda event, i=column, s=step: self.preset_cards[keys[(i + s) % len(keys)]][2].focus_set())
+            self.preset_cards[key] = (box, art, ring)
         self.build_seed_row(parent)
-        row = ttk.Frame(parent, style='Page.TFrame')
-        row.pack(fill='x', pady=(0, 12))
-        ttk.Button(row, textvariable=self.customize_label, style='Page.Link.TButton', command=self.toggle_details).pack(side='left', padx=(4, 12))
-        ttk.Label(row, textvariable=self.customize_hint, style='Page.TLabel').pack(side='left')
-        self.details = ttk.Frame(parent, style='Page.TFrame')
-        details = self.details
         visible = {}
         for option in rando_options.OPTIONS:
             if option.kind in ('items', 'list'):
@@ -1008,13 +1071,39 @@ class Application(PartiesPage):
             if name not in placed:
                 leftovers.setdefault(option.tab, []).append(name)
         groups += [(tab, '', names) for tab, names in leftovers.items()]
+        groups = [group for group in groups if group[2]]
+        # The groups are tabs on the left: one group shown at a time, the first one at first.
+        area = ttk.Frame(parent, style='Page.TFrame')
+        area.pack(fill='x')
+        nav = ttk.Frame(area, style='Page.TFrame')
+        nav.pack(side='left', fill='y', anchor='n', padx=(0, 14))
+        self.setting_search = theme.search_entry(nav, self.setting_query, 'Find a setting   /', width=22)
+        self.setting_search.pack(fill='x', pady=(0, 8))
+        content = ttk.Frame(area, style='Page.TFrame')
+        content.pack(side='left', fill='both', expand=True)
+        def tab(title):
+            item = ttk.Frame(nav, style='Tab.TFrame', padding=(10, 6, 10, 6), cursor='hand2', takefocus=1)
+            item.pack(fill='x', pady=(0, 3))
+            label = ttk.Label(item, text=title, style='Tab.TLabel')
+            label.pack(side='left')
+            count = ttk.Label(item, style='TabBadge.TLabel')
+            count.pack(side='right', padx=(8, 0))
+            for widget in (item, label, count):
+                widget.bind('<Button-1>', lambda event, t=title: self.show_setting_group(t))
+            for sequence in ('<Return>', '<space>'):
+                item.bind(sequence, lambda event, t=title: self.show_setting_group(t))
+            item.bind('<Up>', lambda event, t=title: self.step_setting_group(t, -1))
+            item.bind('<Down>', lambda event, t=title: self.step_setting_group(t, 1))
+            self.setting_nav[title] = (item, label, count)
         for title, note, names in groups:
-            if not names:
-                continue
-            frame = self.card(details, title, note or None)
+            tab(title)
+            frame = self.card(content, title, note or None)
+            frame.pack_forget()
+            self.setting_cards[title] = frame
             rows = ttk.Frame(frame)
             rows.pack(fill='x')
             rows.columnconfigure(0, weight=1)
+            self.setting_group = title
             for index, name in enumerate(names):
                 if name.startswith('game:'):
                     key = name[len('game:'):]
@@ -1022,34 +1111,144 @@ class Application(PartiesPage):
                     self.switch_row(rows, index, text, self.options[key], tip=text + '\n' + OPTION_TIPS[key])
                 else:
                     self.option_row(rows, index, visible[name])
-        box = self.card(details, 'Quality of life', 'Choose each option for your game. Turbo A applies to this app.')
+        ttk.Frame(nav, style='Page.TFrame', height=1).pack(fill='x', pady=6)
+        title = 'Quality of life'
+        tab(title)
+        box = self.setting_cards[title] = self.card(content, title, 'Choose each option for your game. Turbo A applies to this app.')
+        box.pack_forget()
         rows = ttk.Frame(box)
         rows.pack(fill='x')
         rows.columnconfigure(0, weight=1)
+        self.setting_group = title
         for index, (name, text) in enumerate(SKIP_OPTIONS):
             self.switch_row(rows, index, text, self.options[name],
-                            tip='Applies when you generate a game. Turn off to keep the original behaviour.')
+                            tip=text + '\nApplies when you generate a game. Turn off to keep the original behaviour.')
         self.switch_row(rows, len(SKIP_OPTIONS), 'Turbo A: hold A in a dialogue', self.turbo_enabled,
                         command=self.turbo_toggled,
-                        tip='PC port: repeat A while held in a dialogue. Remembered between app starts; takes effect immediately.')
-        box = self.card(details, 'Share these settings')
+                        tip='Turbo A\nPC port: repeat A while held in a dialogue. Remembered between app starts; takes effect immediately.')
+        title = 'Share these settings'
+        tab(title)
+        box = self.setting_cards[title] = self.card(content, title, 'A file of these settings, or an Archipelago YAML.')
+        box.pack_forget()
         row = self.buttons(box)
         ttk.Button(row, text='Import…', command=self.import_settings).pack(side='left')
         ttk.Button(row, text='Export…', command=self.export_settings).pack(side='left', padx=8)
         ttk.Button(row, text='Export an Archipelago YAML…', style='Link.TButton', command=self.export_ap_yaml).pack(side='right')
         ttk.Button(row, text='Import an Archipelago YAML…', style='Link.TButton', command=self.import_ap_yaml).pack(side='right', padx=14)
-        self.generate_card = self.build_generate_section(parent)
+        self.setting_group = None
+        self.setting_query.trace_add('write', lambda *args: self.show_setting_group())
+        self.root.bind_all('<Key-slash>', self.focus_setting_search, add='+')
         for name in {o for opts in rando_options.CATEGORY_OPTIONS.values() for o, _, _ in opts}:
             self.full_vars[name].trace_add('write', lambda *args: self.sync_categories())
+        self.show_setting_group(groups[0][0])
         self.apply_full(rando_options.preset('ap_defaults'), enable=True)
 
+    def focus_setting_search(self, event):
+        """/ jumps to the setting search, unless a field is being typed in."""
+        if self.current_page != 'newseed' or isinstance(event.widget, (tk.Entry, ttk.Entry, tk.Text, ttk.Spinbox)):
+            return None
+        self.setting_search.focus_set()
+        return 'break'
+
+    def step_setting_group(self, title, step):
+        titles = list(self.setting_nav)
+        target = titles[(titles.index(title) + step) % len(titles)]
+        self.show_setting_group(target)
+        self.setting_nav[target][0].focus_set()
+        return 'break'
+
+    def show_setting_group(self, title=None):
+        """One group at a time; while searching, the matching settings of every group."""
+        if title is not None:
+            self.setting_group = title
+            if self.setting_query.get():
+                self.setting_query.set('')   # calls back here
+                return
+        query = self.setting_query.get().strip().casefold()
+        hits = {}
+        for name, record in self.setting_rows.items():
+            match = not query or query in record['search']
+            if match:
+                hits[record['group']] = hits.get(record['group'], 0) + 1
+            # grid_remove() keeps each widget's place; removed ones are no longer grid slaves.
+            if match:
+                for widget in record.pop('removed', ()):
+                    if widget.winfo_exists():
+                        widget.grid()
+            elif 'removed' not in record:
+                record['removed'] = (record['parent'].grid_slaves(row=record['row'])
+                                     + record['parent'].grid_slaves(row=record['row'] + 1))
+                for widget in record['removed']:
+                    widget.grid_remove()
+        for group, card in self.setting_cards.items():
+            shown = (bool(hits.get(group)) or query in group.casefold()) if query else group == self.setting_group
+            if shown and not card.winfo_manager():
+                card.pack(fill='x', pady=(0, 14))
+            elif not shown and card.winfo_manager():
+                card.pack_forget()
+        # Keep the cards in the order of the tabs.
+        for group, card in self.setting_cards.items():
+            if card.winfo_manager():
+                card.pack_forget()
+                card.pack(fill='x', pady=(0, 14))
+        for group, (item, label, count) in self.setting_nav.items():
+            on = not query and group == self.setting_group
+            prefix = 'TabOn' if on else 'Tab'
+            item.configure(style=prefix + '.TFrame')
+            label.configure(style=prefix + '.TLabel')
+            if query:
+                count.configure(text=str(hits.get(group, '')), style=prefix + 'Hit.TLabel')
+            else:
+                changed = self.changed_count.get(group, 0)
+                count.configure(text=f'{changed} changed' if changed else '', style=prefix + 'Badge.TLabel')
+
+    def choose_preset(self, key):
+        self.base_preset = key
+        self.apply_full(rando_options.preset(key), enable=True)
+
+    def reset_to_preset(self):
+        self.apply_full(rando_options.preset(self.base_preset), enable=True)
+
+    def set_full_value(self, name, value):
+        option, variable = rando_options.BY_NAME[name], self.full_vars[name]
+        variable.set(value)
+        if option.kind == 'choice':
+            variable.display.set(variable.labels[[v for v, _, _ in option.values].index(value)])
+
+    def reset_option(self, name):
+        self.set_full_value(name, rando_options.validate(rando_options.preset(self.base_preset))[name])
+        self.update_presets()
+
+    def update_changes(self):
+        """Mark each setting that differs from the chosen preset, and count them per group."""
+        if not hasattr(self, 'setting_rows'):
+            return
+        base = rando_options.validate(rando_options.preset(self.base_preset))
+        counts = {}
+        for name, record in self.setting_rows.items():
+            if name not in base or name == 'fast_chests':
+                continue
+            try:
+                changed = self.full_value(rando_options.BY_NAME[name]) != base[name]
+            except Exception:
+                changed = True
+            marks = record['marks'][0]
+            marks.shown = changed
+            if changed:
+                counts[record['group']] = counts.get(record['group'], 0) + 1
+            elif marks.winfo_manager():
+                marks.pack_forget()
+        self.changed_count = counts
+        for parent in {record['parent'] for record in self.setting_rows.values()}:
+            self.fit_labels(parent, parent.winfo_width())
+        if self.setting_cards:
+            self.show_setting_group()
+        self.update_action_bar()
+
+
     def toggle_details(self):
-        if self.details.winfo_manager():
-            self.details.pack_forget()
-            self.customize_label.set('Customize settings  ▸')
-        else:
-            self.details.pack(fill='x', before=self.generate_card)
-            self.customize_label.set('Customize settings  ▾')
+        """Kept for older scripts: the settings are always shown now, one group at a time."""
+
 
     def update_presets(self):
         """Highlights the preset matching the current settings, if any."""
@@ -1063,39 +1262,112 @@ class Application(PartiesPage):
                         if dict(rando_options.validate(rando_options.preset(key)),
                                 fast_chests=values['fast_chests']) == values), None)
         self.current_preset = current
-        for key, (box, art) in self.preset_cards.items():
-            box.configure(style='CardSelected.TFrame' if key == current else 'Card.TFrame')
-            art.configure(background=self.colors['gold_soft' if key == current else 'green_soft'])
-        self.customize_hint.set('' if current else 'Custom settings')
+        if current:
+            self.base_preset = current
+        for key, (box, art, ring) in self.preset_cards.items():
+            box.configure(style='CardSelected.TFrame' if key == self.base_preset else 'Card.TFrame')
+            art.configure(background=self.colors['gold_soft' if key == self.base_preset else 'green_soft'])
+        self.update_changes()
         self.update_archipelago_controls()
 
-    def label_cell(self, parent, index, text, tip=None, wraplength=520, cursor=''):
-        """Column 0 of a settings row: the label, then an ⓘ carrying ``tip`` as a tooltip."""
+    def label_cell(self, parent, index, text, tip=None, wraplength=460, cursor=''):
+        """Column 0 of a settings row: the label, an ⓘ button that unfolds ``tip`` under the row
+        (click, Enter or Space; hovering still shows it), then the "changed" mark and its ↺."""
+        row = index * 2
         cell = ttk.Frame(parent)
-        cell.grid(row=index, column=0, sticky='w', padx=(0, 18), pady=7)
-        label = ttk.Label(cell, text=text, wraplength=wraplength, justify='left', cursor=cursor)
+        cell.grid(row=row, column=0, sticky='w', padx=(0, 18), pady=7)
+        line = ttk.Frame(cell)
+        line.pack(anchor='w')
+        label = ttk.Label(line, text=text, wraplength=wraplength, justify='left', cursor=cursor)
         label.pack(side='left')
         icon = None
         if tip:
-            icon = theme.info_icon(cell, self.fonts, background=self.colors['surface'])
+            icon = theme.info_icon(line, self.fonts, background=self.colors['surface'])
+            icon.configure(takefocus=1, cursor='hand2', highlightthickness=1, highlightcolor=self.colors['gold'],
+                           highlightbackground=self.colors['surface'])
             icon.pack(side='left', padx=(4, 0))
+            for sequence in ('<Button-1>', '<Return>', '<space>'):
+                icon.bind(sequence, lambda event: self.toggle_help(parent, row, tip))
+        # "changed" and its reset: on the label's line when there is room, else under it.
+        marks = ttk.Frame(cell)
+        marks.shown = False
+        ttk.Label(marks, text='changed', style='Changed.TLabel').pack(side='left')
+        reset = ttk.Button(marks, text='↺', width=2, style='Link.TButton')
+        reset.pack(side='left', padx=(2, 0))
+        if parent is not None:
+            # The label wraps in the room the control leaves: nothing is cut at 1040 px.
+            if not hasattr(parent, 'fit_rows'):
+                parent.fit_rows = []
+                parent.bind('<Configure>', lambda event: self.fit_labels(parent, event.width), add='+')
+            parent.fit_rows.append((cell, line, label, marks))
+        if parent is not None and getattr(self, 'setting_group', None):
+            self.current_row = {'group': self.setting_group, 'parent': parent, 'row': row,
+                                'search': (text + ' ' + (tip or '')).casefold(), 'marks': (marks, reset)}
         return label, icon
+
+    def fit_labels(self, parent, width):
+        if width <= 1:
+            return   # not laid out yet: done again at its first <Configure>
+        if not hasattr(self, 'label_font'):
+            self.label_font = tkfont.Font(root=self.root, font=self.fonts.body)
+        # The control column is as wide as its widest control, whatever the row.
+        controls = max((w.winfo_reqwidth() for w in parent.grid_slaves(column=1)), default=0)
+        space = width - controls - 40
+        for cell, line, label, marks in parent.fit_rows:
+            icon = sum(w.winfo_reqwidth() + 4 for w in line.winfo_children() if w is not label and w is not marks)
+            needed = marks.winfo_reqwidth() + 8 if marks.shown else 0
+            inline = self.label_font.measure(label.cget('text')) + icon + needed <= space
+            label.configure(wraplength=max(120, min(460, space - icon - (needed if inline else 0))))
+            if not marks.shown:
+                if marks.winfo_manager():
+                    marks.pack_forget()
+                continue
+            where = str(line if inline else cell)
+            if marks.winfo_manager() and marks.pack_info().get('in') is not None and str(marks.pack_info()['in']) == where:
+                continue
+            marks.pack_forget()
+            if inline:
+                marks.pack(in_=line, side='left', padx=(8, 0))
+            else:
+                marks.pack(in_=cell, anchor='w', pady=(2, 0))
+
+    def register_row(self, name):
+        record = getattr(self, 'current_row', None)
+        if record is not None:
+            self.setting_rows[name] = record
+            record['marks'][1].configure(command=lambda: self.reset_option(name))
+            self.current_row = None
+
+    def toggle_help(self, parent, row, tip):
+        key = (str(parent), row)
+        if key in self.help_rows:
+            self.help_rows.pop(key).destroy()
+            return 'break'
+        body = tip.partition('\n')[2].strip() or tip
+        help_label = ttk.Label(parent, text=body, style='Help.TLabel', wraplength=620, justify='left')
+        help_label.grid(row=row + 1, column=0, columnspan=2, sticky='ew', pady=(0, 8))
+        self.help_rows[key] = help_label
+        return 'break'
+
 
     def switch_row(self, parent, index, text, variable, command=None, tip=None):
         """Label on the left, switch on the right; clicking the label toggles too."""
         label, icon = self.label_cell(parent, index, text, tip, cursor='hand2')
+        row = index * 2
         widget = ttk.Checkbutton(parent, variable=variable, command=command, style='Bare.TCheckbutton')
-        widget.grid(row=index, column=1, sticky='e', pady=7)
+        widget.grid(row=row, column=1, sticky='e', pady=7)
         def click(event):
             if 'disabled' not in widget.state():
                 widget.invoke()
                 widget.focus_set()
         label.bind('<Button-1>', click)
         if tip:
-            theme.Tooltip((label, icon, widget), tip, self.fonts)
+            theme.Tooltip((label, widget), tip, self.fonts)
         if index:
-            theme.rule(parent).grid(row=index, column=0, columnspan=2, sticky='new')
+            theme.rule(parent).grid(row=row, column=0, columnspan=2, sticky='new')
+        self.register_row(f'switch:{str(parent)}:{row}')
         return widget
+
 
     def sync_categories(self):
         """Complete mode: each checkbox shows the state of its solver options."""
@@ -1676,19 +1948,44 @@ class Application(PartiesPage):
     def option_row(self, parent, index, option):
         label, help_text = OPTION_COPY.get(option.name, (option.label, option.help))
         tip = option_tip(option, label, help_text)
+        row = index * 2
         def describe():
             self.update_presets()
-        if option.kind in ('items', 'list'):
-            variable = ItemsVar() if option.kind == 'items' else ListVar(option)
+        if option.kind == 'items':
+            variable = ItemsVar()
+            widget = self.items_field(parent, variable, describe) if parent else None
+        elif option.kind == 'list':
+            variable = ListVar(option)
             widget = ttk.Entry(parent, textvariable=variable.text, width=40) if parent else None
             if widget:
-                widget.bind('<FocusOut>', lambda event: describe(), add='+')
+                error = ttk.Label(parent, style='Bad.TLabel')
+                def check(event=None):
+                    # A typing error is said at once, under the field, not at generation.
+                    try:
+                        variable.get()
+                        error.grid_remove()
+                    except ValueError as problem:
+                        error.configure(text='\u2715 ' + str(problem))
+                        error.grid(row=row + 1, column=0, columnspan=2, sticky='w', pady=(0, 6))
+                    describe()
+                widget.bind('<FocusOut>', check, add='+')
+                widget.bind('<Return>', check, add='+')
         elif option.kind == 'bool':
             variable = tk.BooleanVar(value=option.default)
-            widget = self.switch_row(parent, index, label, variable, command=describe, tip=tip) if parent else None
+            if parent:
+                widget = self.switch_row(parent, index, label, variable, command=describe, tip=tip)
+                self.setting_rows[option.name] = self.setting_rows.pop(f'switch:{str(parent)}:{row}', None) or {}
+                if not self.setting_rows[option.name]:
+                    del self.setting_rows[option.name]
+                else:
+                    self.setting_rows[option.name]['marks'][1].configure(command=lambda: self.reset_option(option.name))
+            else:
+                widget = None
         elif option.kind == 'int':
             variable = tk.IntVar(value=option.default)
             widget = ttk.Spinbox(parent, from_=min(option.supported_ints), to=max(option.supported_ints), textvariable=variable, width=8, command=describe) if parent else None
+            if widget:
+                widget.bind('<KeyRelease>', lambda event: describe(), add='+')
         else:
             def choice_label(value, text):
                 if option.name == 'chest_matching':
@@ -1711,12 +2008,68 @@ class Application(PartiesPage):
         self.full_vars[option.name] = variable
         if widget:
             if option.kind != 'bool':
-                text_label, icon = self.label_cell(parent, index, label, tip, wraplength=460)
-                widget.grid(row=index, column=1, sticky='e', pady=7)
-                theme.Tooltip((text_label, icon), tip, self.fonts)
+                text_label, icon = self.label_cell(parent, index, label, tip, wraplength=420)
+                self.register_row(option.name)
+                widget.grid(row=row, column=1, sticky='e', pady=7)
+                theme.Tooltip((text_label,), tip, self.fonts)
                 if index:
-                    theme.rule(parent).grid(row=index, column=0, columnspan=2, sticky='new')
+                    theme.rule(parent).grid(row=row, column=0, columnspan=2, sticky='new')
             widget.bind('<FocusIn>', lambda event: describe(), add='+')
+
+    def items_field(self, parent, variable, changed):
+        """Starting inventory: one tag per item (× removes it), a field with suggestions to add one;
+        an unknown name is said at once under the field."""
+        frame = ttk.Frame(parent)
+        tags = ttk.Frame(frame)
+        tags.pack(anchor='e')
+        names = sorted(STARTABLE_ITEMS)
+        entry = ttk.Combobox(frame, values=names, width=30)
+        entry.pack(anchor='e', pady=(4, 0))
+        error = ttk.Label(frame, style='Bad.TLabel', wraplength=300, justify='right')
+        def redraw():
+            for child in tags.winfo_children():
+                child.destroy()
+            for position, (name, count) in enumerate(sorted(variable.items.items())):
+                tag = ttk.Frame(tags, style='Tab.TFrame', padding=(8, 2, 4, 2))
+                tag.grid(row=position // 2, column=position % 2, sticky='e', padx=(4, 0), pady=(0, 4))
+                ttk.Label(tag, text=name + (f' \u00d7{count}' if count > 1 else ''), style='Tab.TLabel').pack(side='left')
+                ttk.Button(tag, text='\u00d7', width=2, style='Link.TButton',
+                           command=lambda n=name: remove(n)).pack(side='left')
+        def remove(name):
+            items = variable.get()
+            items.pop(name, None)
+            variable.set(items)
+            changed()
+        def add(event=None):
+            text = entry.get().strip()
+            if not text:
+                return 'break'
+            try:
+                parsed = rando_options.parse_items(text)
+            except ValueError as problem:
+                error.configure(text='\u2715 ' + str(problem) + '. Pick a name from the list.')
+                error.pack(anchor='e', pady=(4, 0))
+                return 'break'
+            error.pack_forget()
+            items = variable.get()
+            for name, count in parsed.items():
+                items[name] = items.get(name, 0) + count
+            entry.set('')
+            entry.configure(values=names)
+            variable.set(items)
+            changed()
+            return 'break'
+        def suggest(event):
+            if event.keysym in ('Return', 'Up', 'Down', 'Escape'):
+                return
+            typed = entry.get().strip().casefold()
+            entry.configure(values=[n for n in names if typed in n.casefold()] if typed else names)
+        entry.bind('<Return>', add)
+        entry.bind('<<ComboboxSelected>>', add)
+        entry.bind('<KeyRelease>', suggest, add='+')
+        variable.listeners.append(redraw)
+        return frame
+
 
     def full_value(self, option):
         return self.full_vars[option.name].get()

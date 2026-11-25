@@ -430,12 +430,12 @@ class PartiesPage:
             directory, installed = result
             previous = self.artifact_manifest
             self.use_artifact(directory)
-            self.show_page('tracker')
             warning = qol_seed_warning(Path(installed).parent)
+            open_tracker = ('Open the tracker', lambda: self.show_page('tracker'))
             if warning:
-                self.show_notice('warn', 'Seed installed in ' + str(installed), warning)
+                self.show_notice('warn', 'Seed installed in ' + str(installed), warning, [open_tracker])
             else:
-                self.notify('Seed installed in ' + str(installed) + '. Start a new game to track it.')
+                self.notify('Seed installed in ' + str(installed) + '. Start a new game with it.', open_tracker)
             self.offer_save_migration(self.artifact_manifest, previous)
         self.run_job(job, done)
 

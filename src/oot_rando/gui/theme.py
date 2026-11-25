@@ -457,6 +457,13 @@ def apply(root):
     style.configure('HeroNotice.Accent.TButton', background=c['hero_line'])
     style.map('HeroNotice.Accent.TButton', background=[('active', c['hero_line'])])
     style.configure('Hash.TLabel', foreground=c['muted'], font=f.mono)
+    # New seed: a setting that differs from its preset, the counts in the group tabs.
+    style.configure('Changed.TLabel', foreground=c['amber_text'], background=c['amber_soft'], font=f.label, padding=(6, 0))
+    style.configure('TabBadge.TLabel', background=c['surface'], foreground=c['amber_text'], font=f.label)
+    style.configure('TabOnBadge.TLabel', background=c['green_soft'], foreground=c['amber_text'], font=f.label)
+    style.configure('TabHit.TLabel', background=c['surface'], foreground=c['green'], font=f.label)
+    style.configure('TabOnHit.TLabel', background=c['green_soft'], foreground=c['green'], font=f.label)
+    style.configure('Help.TLabel', foreground=c['muted'], background=c['field'], padding=(10, 6), font=f.small)
     style.configure('HeroHash.TLabel', background=c['sidebar'], foreground=c['sidebar_text'], font=f.mono)
     style.configure('Ok.TLabel', foreground=c['green'], font=f.small)
     style.configure('Bad.TLabel', foreground=c['red'], font=f.small)
