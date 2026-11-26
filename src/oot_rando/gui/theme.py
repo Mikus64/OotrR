@@ -310,6 +310,7 @@ def apply(root):
     style.configure('Field.TLabel', foreground=c['muted'], font=f.label)
     style.configure('Heading.TLabel', font=f.heading, padding=(0, 0, 0, 2))
     style.configure('Page.TLabel', background=c['page'], foreground=c['muted'])
+    style.configure('PageField.TLabel', background=c['page'], foreground=c['muted'], font=f.label)
     style.configure('PageTitle.TLabel', background=c['page'], foreground=c['text'], font=f.title)
     style.configure('PageSub.TLabel', background=c['page'], foreground=c['muted'])
     style.element_create('Chip.bg', 'image', images['chip'], border=11, width=26, height=26, sticky='nsew')

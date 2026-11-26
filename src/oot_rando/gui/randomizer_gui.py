@@ -383,7 +383,8 @@ class Application(PartiesPage):
         self.spoiler_tab = self.tab('spoiler', 'Spoiler', 'Spoiler', 'Every reward of the open seed. Reveal only if you want to know.')
         self.help_tab = self.tab('help', 'Help', 'Help', 'How the application works, step by step.')
         self.tabs.bind('<<NotebookTabChanged>>', lambda event: self.page_changed())
-        self.home_body = self.scrollable(self.home_tab)
+        # Without a seed, Home fits on one screen: nothing to scroll to.
+        self.home_body = self.scrollable(self.home_tab, locked=lambda: not self.artifact)
         self.build_action_bar()   # under the settings, never scrolled away
         self.settings_body = self.scrollable(self.settings_tab)
         self.multiworld_body, self.setup_body = self.scrollable(self.multiworld_tab), self.scrollable(self.setup_tab)
@@ -423,7 +424,8 @@ class Application(PartiesPage):
         self.fonts, self.images = theme.apply(self.root)
 
     # ------------------------------------------------------------ layout
-    def scrollable(self, outer):
+    def scrollable(self, outer, locked=None):
+        """A vertically scrolled page. ``locked()`` true: the page stays at its top, without a bar."""
         canvas = tk.Canvas(outer, highlightthickness=0, background=self.colors['page'], borderwidth=0)
         bar = ttk.Scrollbar(outer, orient='vertical', command=canvas.yview, style='Page.Vertical.TScrollbar')
         parent = ttk.Frame(canvas, padding=(0, 0, 16, 6), style='Page.TFrame')
@@ -432,6 +434,12 @@ class Application(PartiesPage):
         canvas.bind('<Configure>', lambda event: canvas.itemconfigure(window, width=event.width))
         def autohide(first, last):
             # The bar keeps its place (no relayout, so no flicker) and is only painted when needed.
+            if locked and locked():
+                if float(first) > 0:   # dragged through the hidden bar: back to the top
+                    canvas.after_idle(lambda: canvas.yview_moveto(0))
+                bar.configure(style='Hidden.Vertical.TScrollbar')
+                bar.set(first, last)
+                return
             needed = not (float(first) <= 0 and float(last) >= 1)
             bar.configure(style='Page.Vertical.TScrollbar' if needed else 'Hidden.Vertical.TScrollbar')
             bar.set(first, last)
@@ -439,12 +447,15 @@ class Application(PartiesPage):
         canvas.configure(yscrollcommand=autohide)
         canvas.pack(side='left', fill='both', expand=True)
         def wheel(event):
+            if locked and locked():
+                return
             if str(event.widget).startswith(str(outer)):
                 units = theme.wheel_units(event.num, event.delta)
                 if units:
                     canvas.yview_scroll(units, 'units')
         for sequence in theme.WHEEL_EVENTS:
             self.root.bind_all(sequence, wheel, add='+')
+        parent.canvas = canvas
         return parent
 
     def card(self, parent, title=None, subtitle=None, fill='x', expand=False, side='top', padx=0):
@@ -466,6 +477,8 @@ class Application(PartiesPage):
 
     def build_help(self):
         parent = self.scrollable(self.help_tab)
+        self.build_tutorial(parent)
+        ttk.Label(parent, text='MORE DETAILS', style='PageField.TLabel').pack(anchor='w', pady=(10, 8))
         sections = [
             ('Prepare a game', 'In Setup, choose your .nup file and the mods folder. In New seed, pick an adventure, then click Generate and install: the seed is written straight into the mods folder. Close the game during installation.'),
             ('Play on a PC port (Hookshot, Longshot...)', 'Choose the mods folder next to the game exe (hookshot.exe, longshot.exe...). Each seed is installed in its own sub-folder. Only one seed of this application stays active at a time; the previous one is archived.'),
@@ -489,6 +502,63 @@ class Application(PartiesPage):
                   style='Page.TLabel').pack(side='left')
         ttk.Button(row, text='Updates are in Setup ›', style='Page.Link.TButton',
                    command=lambda: self.show_page('setup')).pack(side='left', padx=(8, 0))
+
+    TUTORIAL = [
+        ('setup', 'Tell the app where your game is',
+         'Open Setup and choose two things: your game file (.nup) and the mods folder. On a PC port '
+         '(Hookshot, Longshot…), the mods folder sits next to the game exe. On an emulator, it is the title '
+         f'folder {TITLE} in the emulator\'s load folder. A green tick under each field means it was recognised. '
+         'You only do this once.', 'Open Setup ›', 'setup'),
+        ('seed', 'Create your first seed',
+         'Open New seed and pick an adventure: each card is a ready-made set of settings, so you can '
+         'generate right away and change details later. Close the game, then click Generate and install: '
+         'the seed is written straight into the mods folder.', 'Create a seed ›', 'newseed'),
+        ('save', 'Start a new game and save once',
+         'Launch the game and start a new file (an old save belongs to another seed). Play past the intro, '
+         'then save: the tracker finds the newest save by itself and links it to this seed.', None, None),
+        ('play', 'Play and follow your progress',
+         'Home shows how many locations you found and what is in reach now. The Tracker lists every location: '
+         'Available means your items let you get it. It updates each time the game saves, and live while '
+         'the game runs.', 'Open the tracker ›', 'tracker')]
+
+    def build_tutorial(self, parent):
+        """First-time guide at the top of Help: four steps, ticked as the player completes them."""
+        box = self.card(parent, 'First time here? Start in 4 steps',
+                        'Follow these steps in order. Each one is ticked as soon as the app sees it done.')
+        self.tutorial_marks = {}
+        for index, (key, title, text, button, page) in enumerate(self.TUTORIAL):
+            if index:
+                theme.rule(box).pack(fill='x', pady=(2, 12))
+            row = ttk.Frame(box)
+            row.pack(fill='x', pady=(0, 10))
+            mark = theme.badge(row, self.images)
+            mark.pack(side='left', anchor='n', padx=(0, 16))
+            body = ttk.Frame(row)
+            body.pack(side='left', fill='x', expand=True)
+            ttk.Label(body, text=title, style='Heading.TLabel').pack(anchor='w')
+            ttk.Label(body, text=text, style='Muted.TLabel', wraplength=640, justify='left').pack(anchor='w', pady=(2, 0))
+            if button:
+                ttk.Button(body, text=button, style='Link.TButton',
+                           command=lambda page=page: self.show_page(page)).pack(anchor='w', pady=(6, 0))
+            self.tutorial_marks[key] = mark
+        theme.rule(box).pack(fill='x', pady=(2, 12))
+        ttk.Label(box, text='Going further: play with friends in Multiworld, keep several adventures side by side '
+                  'with My Games (turn it on in Setup), or look up where every item is in Spoiler.',
+                  style='Small.TLabel', wraplength=720, justify='left').pack(anchor='w')
+        self.update_tutorial()
+
+    def update_tutorial(self):
+        if not hasattr(self, 'tutorial_marks'):
+            return
+        nup = self.nup.get().strip()
+        mods = self.mods.get().strip()
+        done = {'setup': bool(nup) and Path(nup).is_file() and bool(mods) and Path(mods).is_dir(),
+                'seed': bool(self.artifact),
+                'save': bool(self.tracker) and self.tracker.link == 'linked'}
+        done['play'] = done['save'] and bool(self.tracker_counts) and self.tracker_counts.get('done', 0) > 0
+        current = next((key for key, *_ in self.TUTORIAL if not done[key]), None)
+        for index, (key, *_) in enumerate(self.TUTORIAL):
+            self.tutorial_marks[key].set('done' if done[key] else 'on' if key == current else 'off', str(index + 1))
 
     def tab(self, key, nav, title, subtitle):
         frame = ttk.Frame(self.tabs, style='Page.TFrame')
@@ -755,6 +825,8 @@ class Application(PartiesPage):
         # The spoiler is not offered here: one click too close to the adventure.
         for text, command in [('Open a seed…', self.open_artifact), ('Open the folder', self.open_folder)]:
             ttk.Button(links, text=text, style='Page.Link.TButton', command=command).pack(side='left', padx=(4, 14))
+        ttk.Button(links, text='Need help?  ›', style='Page.Link.TButton',
+                   command=lambda: self.show_page('help')).pack(side='right', padx=(14, 4))
         tiles = ttk.Frame(parent, style='Page.TFrame')
         tiles.pack(fill='x', pady=(0, 14))
         self.home_tiles = {}
@@ -773,7 +845,7 @@ class Application(PartiesPage):
             detail.pack(anchor='w', pady=(3, 0))
             self.home_tiles[key] = {'dot': dot, 'value': value, 'detail': detail,
                                     'fix': ttk.Button(box, text='Fix ›', style='Link.TButton')}
-        box = self.card(parent)
+        box = self.home_reach = self.card(parent)
         row = self.buttons(box, pady=(0, 6))
         ttk.Label(row, text='Available now', style='Heading.TLabel').pack(side='left')
         self.home_see_all = ttk.Button(row, text='See all ›', style='Link.TButton',
@@ -916,6 +988,13 @@ class Application(PartiesPage):
         if hasattr(self, 'sync_dot'):
             linked = bool(self.tracker) and self.tracker.link == 'linked'
             self.sync_dot.configure(image=self.images['dot_ok' if linked else 'dot_warn' if self.tracker else 'dot_off'])
+        # Without a seed the list could only say "create a seed": the hero already does.
+        if self.artifact and not self.home_reach.winfo_manager():
+            self.home_reach.pack(fill='x', pady=(0, 14))
+        elif not self.artifact:
+            self.home_reach.pack_forget()
+            self.home_body.canvas.yview_moveto(0)
+        self.update_tutorial()
         if self.pages['home'][1] != ('Welcome back' if self.artifact else 'Welcome'):
             frame, _, subtitle = self.pages['home']
             self.pages['home'] = (frame, 'Welcome back' if self.artifact else 'Welcome', subtitle)
