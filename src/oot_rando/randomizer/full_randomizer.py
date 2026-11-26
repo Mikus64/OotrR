@@ -1036,9 +1036,9 @@ REPEATABLE = ('pots', 'bushes', 'rocks', 'crates', 'beehives', 'trees')
 def check_name(entry, gid, zone=None):
     """Name of a check: its AP location when it has its own, else where it stands
     (``game/check_names.py``: KF_sarias_house_heart_1), else its AP location (NPC gifts)."""
-    from oot_rando.game.check_names import entry_label
+    from oot_rando.game.check_names import entry_label, _LABEL_OVERRIDES
     if entry['kind'] == 'exact' and entry['ap']:
-        return entry['ap'][0]
+        return _LABEL_OVERRIDES.get(entry['ap'][0], entry['ap'][0])
     label = entry_label(entry)
     if label:
         return label
@@ -1081,7 +1081,8 @@ def tracker_checks(data, matches, shuffled):
         covered.update(covered_locations(entry, gid))
         zone = _entry_zone(data, entry, gid)
         if entry['kind'] == 'exact' and entry['ap']:
-            name = entry['ap'][0]
+            from oot_rando.game.check_names import _LABEL_OVERRIDES
+            name = _LABEL_OVERRIDES.get(entry['ap'][0], entry['ap'][0])
         else:
             name = check_name(entry, gid, zone_label(zone))
             age = source_age(entry['variants'])
