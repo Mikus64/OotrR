@@ -40,6 +40,9 @@ class Fortress(unittest.TestCase):
             self.assertEqual(event.name, 'Event146')
             self.assertTrue(all(flags.get(flag) for flag in report['freed']['freed']))
         self.assertNotIn(g.CARD, report['freed']['freed'])
+        # The cell's carpenter is deleted by the native rescue flag, not by the release flags.
+        for i in range(13, 17):
+            self.assertIn(f'GerudoFortress_Saved_Npc_Hylia_{i:03}_Adult', report['freed']['freed'])
         with self.assertRaises(ValueError):
             g.free_remaining_carpenters(files[g.SPIRIT_FLOW])
 

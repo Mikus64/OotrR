@@ -227,7 +227,11 @@ def free_remaining_carpenters(raw):
     if before.data.nxt.v is not step or _params(step).get('StepName') != 'Step02':
         raise ValueError('Unexpected fortress completion sequence.')
     following = step
-    flags = [f'GerudoFortress_IsAfterHelpCarpenter_Npc_Hylia_{i:03}_Adult' for i in range(13, 17)]
+    # ``Saved`` is what a native rescue writes (``StepCheck_Clear``): the cell's
+    # carpenter is deleted by it and his escaped copy appears outside. Without it
+    # the other carpenters stayed behind their opened cells.
+    flags = [f'GerudoFortress_Saved_Npc_Hylia_{i:03}_Adult' for i in range(13, 17)]
+    flags += [f'GerudoFortress_IsAfterHelpCarpenter_Npc_Hylia_{i:03}_Adult' for i in range(13, 17)]
     flags += [f'GerudoFortress_WarpPoint{i:02}_ClearEvent' for i in range(1, 5)]
     for i, flag in reversed(list(enumerate(flags))):
         following = flow.set_bool(f'RandoFreeCarpenters{i}', flag, True, following)
