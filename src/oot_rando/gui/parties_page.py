@@ -44,8 +44,9 @@ class PartiesPage:
         if enabled:
             if self.party_library is None:
                 self.open_party_library()
-            if hasattr(self, '_reconcile_longshot_installation'):
-                self._reconcile_longshot_installation()
+            notice = self.reconcile_longshot_installation()
+            if notice:
+                self.status.set(notice)
             self.restore_party()
         else:
             # The installed seed stays where it is; it is simply no longer managed.
@@ -278,7 +279,8 @@ class PartiesPage:
         except Exception as error:
             self.error(error)
 
-    def _party_seed_dir(self, party):
+    def party_seed_dir(self, party):
+        """The installed seed of a party, else its stored snapshot (its port folder vanished)."""
         live_seed = Path(party['mods']) / party['mod_name']
         if live_seed.is_dir():
             return live_seed
@@ -289,18 +291,22 @@ class PartiesPage:
 
     def party_opened(self, party):
         self.party_job_paused = False
-        party_mods = party['mods']
-        if not Path(party_mods).exists() and hasattr(self, '_resolve_stale_mods_path'):
-            resolved = self._resolve_stale_mods_path(party_mods)
+        if not Path(party['mods']).exists():
+            # Its port folder vanished (a Longshot update): follow the new build.
+            resolved = self.resolve_longshot_mods(party['mods'])
             if resolved:
-                party_mods = resolved
-        self.mods.set(party_mods)
+                try:
+                    self.party_library.migrate_mods_directory(resolved, old_mods=party['mods'])
+                    party = self.party_library.get(party['id'])
+                except (OSError, ValueError) as error:
+                    self.error(error)
+        self.mods.set(party['mods'])
         self.save_path.set('')
         self.auto_save.set(True)
         self.ap_password.set('')
         self.ap_address.set(party.get('ap_address') or 'archipelago.gg:38281')
         self.slot.set('party-' + party['id'])
-        self.use_artifact(self._party_seed_dir(party))
+        self.use_artifact(self.party_seed_dir(party))
         self.start_turbo()
         self.render_parties()
         self.update_home()

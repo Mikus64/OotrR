@@ -16,6 +16,7 @@ import threading
 import uuid
 
 from oot_rando.paths import app_dir
+from oot_rando.pc_port import longshot_layout_root
 from oot_rando.randomizer.randomizer_services import read_artifact, validate_mod_directory, is_randomizer_seed
 from oot_rando.tracker.save_patch import GameRunning, running_game
 
@@ -25,6 +26,10 @@ def _write(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(path)
+
+
+def _same_path(a, b):
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
 def _plain_tree(path):
@@ -300,51 +305,45 @@ class PartyLibrary:
         party['ap_address'] = address.strip()
         _write(self.folder(ident) / 'party.json', party)
 
-
     @_operation
-    def migrate_mods_directory(self, new_mods, *, old_mods=None, root=None, restore_active_seed=True):
-        """Rewrite parties pointing at an old/missing Longshot version to ``new_mods``."""
-        from oot_rando.pc_port import longshot_layout_root
+    def migrate_mods_directory(self, new_mods, *, old_mods=None, root=None):
+        """Point at ``new_mods`` the games whose mods folder vanished: ``old_mods``, and any other
+        of the same Longshot root (``root``, else the one of ``new_mods``). A folder which still
+        exists is never moved: an older build is the player's choice.
 
-        target_mods = validate_mod_directory(new_mods)
-        target_norm = os.path.normcase(os.path.abspath(str(target_mods)))
-        old_norm = os.path.normcase(os.path.abspath(str(old_mods))) if old_mods else ""
-        target_root = None
+        A Longshot update can delete the version folder a game was installed in. The active game
+        then gets its stored seed installed again in ``new_mods`` (same transaction as a switch),
+        unless another randomizer seed already sits there. Returns the names of the moved games.
+        """
+        target = validate_mod_directory(new_mods)
+        old = Path(os.path.abspath(old_mods)) if old_mods else None
         if root:
-            target_root = Path(root).resolve()
+            root = Path(root).resolve()
         else:
-            lay = longshot_layout_root(target_mods)
-            if lay is not None:
-                target_root = lay[0].resolve()
-
-        migrated = []
-        active_id = self.active_id
+            layout = longshot_layout_root(target)
+            root = layout[0].resolve() if layout else None
+        moved = []
         for party in self.list():
-            p_mods = os.path.abspath(str(party["mods"]))
-            p_norm = os.path.normcase(p_mods)
-            if p_norm == target_norm:
+            mods = Path(os.path.abspath(party['mods']))
+            if mods.exists() or _same_path(mods, target):
                 continue
-            should_migrate = bool(old_norm and p_norm == old_norm)
-            if not should_migrate and target_root is not None:
-                p_lay = longshot_layout_root(p_mods)
-                if p_lay is not None and p_lay[0].resolve() == target_root and not Path(p_mods).exists():
-                    should_migrate = True
-            if not should_migrate:
+            layout = longshot_layout_root(mods) if root is not None else None
+            same_root = layout is not None and layout[0].resolve() == root
+            if not same_root and not (old is not None and _same_path(mods, old)):
                 continue
-            updated = dict(party, mods=str(target_mods))
-            _write(self.folder(party["id"]) / "party.json", updated)
-            migrated.append(party["name"])
-            if restore_active_seed and party["id"] == active_id:
-                live_seed = target_mods / party["mod_name"]
-                snap_seed = self.bundle(updated) / "seed"
-                has_other_seed = target_mods.is_dir() and any(
-                    is_randomizer_seed(p) for p in target_mods.iterdir()
-                )
-                has_merged = (target_mods / "Merged_Zelda_Rando").is_dir()
-                if snap_seed.is_dir() and not live_seed.exists() and not has_other_seed and not has_merged:
-                    target_mods.mkdir(parents=True, exist_ok=True)
-                    _copy(snap_seed, live_seed)
-        return migrated
+            record = self.folder(party['id']) / 'party.json'
+            _write(record, dict(party, mods=str(target)))   # recovery checks this owner
+            if party['id'] == self.active_id:
+                seed = target / party['mod_name']
+                installed = target.is_dir() and any(is_randomizer_seed(p) for p in target.iterdir())
+                if not seed.exists() and not installed:
+                    try:
+                        self._install({seed: self.bundle(party) / 'seed'}, party['id'])
+                    except Exception:
+                        _write(record, party)
+                        raise
+            moved.append(party['name'])
+        return moved
 
     @_operation
     def delete(self, ident):
