@@ -11,7 +11,7 @@ import os
 import re
 from pathlib import Path
 
-KNOWN_EXES = ('hookshot.exe', 'longshot.exe')
+KNOWN_EXES = ('hookshot.exe', 'longshot.exe', 'impshot.exe')
 KNOWN_NAMES = tuple(Path(exe).stem for exe in KNOWN_EXES)   # native Linux builds: no '.exe'
 DEFAULT_OPTIONS = 'hookshot_options.ini'
 
@@ -90,7 +90,7 @@ def options_ini(folder):
 # Longshot's launcher keeps one folder per release channel, each with one folder per build:
 # ``<root>/<channel>/<version>`` (the port itself: image.bin, romfs/, mods/). An update installs
 # a new version folder and may delete the old one, which leaves saved mods paths pointing nowhere.
-LONGSHOT_CHANNELS = ('stable', 'release candidate', 'nightly')
+LONGSHOT_CHANNELS = ('stable', 'release candidate', 'nightly', 'pull request')
 
 _CHANNEL_ALIASES = {
     'stable': 'stable',
@@ -100,21 +100,33 @@ _CHANNEL_ALIASES = {
     'release_candidate': 'release candidate',
     'releasecandidate': 'release candidate',
     'rc': 'release candidate',
+    'pull request': 'pull request',
+    'pull requests': 'pull request',
+    'pull-request': 'pull request',
+    'pull-requests': 'pull request',
+    'pull_request': 'pull request',
+    'pull_requests': 'pull request',
+    'pullrequest': 'pull request',
+    'pullrequests': 'pull request',
+    'pr': 'pull request',
+    'prs': 'pull request',
 }
 
 _CHANNEL_LABELS = {
     'stable': 'Stable',
     'release candidate': 'Release Candidate',
     'nightly': 'Nightly',
+    'pull request': 'Pull Request',
 }
 
 _PRE_RANK = {'rc': 4, 'beta': 3, 'alpha': 2, 'pre': 1, 'dev': 0}
 _SEMVER_RE = re.compile(r'^[vV]?(\d+(?:\.\d+)+)(?:[-_.]?(rc|beta|alpha|pre|dev)[-_.]?(\d*))?', re.IGNORECASE)
 _DATE_RE = re.compile(r'(\d{4})[-_]?(\d{2})[-_]?(\d{2})(?:[-_T]?(\d{2})(\d{2})?)?')
+_PR_RE = re.compile(r'(?:^|[^a-z0-9])(?:pr|pull[-_\s]?request)[-_#\s]?(\d+)', re.IGNORECASE)
 
 
 def canonical_channel_name(dirname):
-    """The Longshot channel key (stable / release candidate / nightly) of a folder name, else None."""
+    """The Longshot channel key (stable / release candidate / nightly / pull request) of a folder name, else None."""
     if not dirname:
         return None
     return _CHANNEL_ALIASES.get(re.sub(r'\s+', ' ', str(dirname).strip()).lower())
@@ -148,7 +160,8 @@ def _port_mtime(folder):
 
 
 def version_sort_key(path):
-    """Sort key of a Longshot version folder: semver names, then dated names, then the rest."""
+    """Sort key of a Longshot version folder: semver names, then dated names, then pull request
+    numbers, then the rest."""
     folder = Path(path)
     name = folder.name
     mtime = _port_mtime(folder)
@@ -159,11 +172,14 @@ def version_sort_key(path):
         pre_number = int(semver.group(3)) if semver.group(3) else 0
         is_release = 0 if pre_tag else 1
         pre_rank = _PRE_RANK.get(pre_tag, 0) if pre_tag else 99
-        return (2, numbers, is_release, pre_rank, pre_number, mtime, name.lower())
+        return (3, numbers, is_release, pre_rank, pre_number, mtime, name.lower())
     date = _DATE_RE.search(name)
     if date:
         stamp = tuple(int(group) if group else 0 for group in date.groups())
-        return (1, stamp, 0, 0, 0, mtime, name.lower())
+        return (2, stamp, 0, 0, 0, mtime, name.lower())
+    pull = _PR_RE.search(name)
+    if pull:
+        return (1, (int(pull.group(1)),), 0, 0, 0, mtime, name.lower())
     return (0, (), 0, 0, 0, mtime, name.lower())
 
 
@@ -193,9 +209,21 @@ def longshot_layout_root(path):
     return None
 
 
-def discover_longshot_channels(root_dir):
-    """The newest built port of each channel under a Longshot root, in LONGSHOT_CHANNELS order."""
+def discover_longshot_channels(root_dir, *, require_image_bin=True):
+    """The newest built port of each channel under a Longshot root, in LONGSHOT_CHANNELS order.
+    With ``require_image_bin`` False, a folder with only ``romfs/`` counts as a build."""
     root = Path(root_dir)
+
+    def is_build(folder):
+        if is_port_folder(folder):
+            return True
+        if require_image_bin:
+            return False
+        try:
+            return (folder / 'romfs').is_dir()
+        except OSError:
+            return False
+
     try:
         entries = sorted((entry for entry in root.iterdir() if entry.is_dir()), key=lambda e: e.name.lower())
     except OSError:
@@ -205,9 +233,9 @@ def discover_longshot_channels(root_dir):
         channel = canonical_channel_name(entry.name)
         if channel is None:
             continue
-        builds = [entry] if is_port_folder(entry) else []
+        builds = [entry] if is_build(entry) else []
         try:
-            builds.extend(sub for sub in entry.iterdir() if sub.is_dir() and is_port_folder(sub))
+            builds.extend(sub for sub in entry.iterdir() if sub.is_dir() and is_build(sub))
         except OSError:
             continue
         if not builds:
@@ -266,3 +294,74 @@ def normalize_port_mods_dir(path):
         return ''
     folder = Path(os.path.normpath(os.path.expanduser(raw)))
     return str(folder / 'mods') if is_port_folder(folder) else str(folder)
+
+
+def resolve_stale_port_subpath(stale_path, old_mods, new_mods):
+    """Relocate a missing path (such as save_path) from an old port folder to the new port folder."""
+    raw = str(stale_path or "").strip()
+    if not raw or not new_mods:
+        return None
+    p = Path(raw)
+    if p.exists():
+        return p
+    new_port = Path(new_mods).parent if Path(new_mods).name.lower() == "mods" else Path(new_mods)
+    if old_mods:
+        old_port = Path(old_mods).parent if Path(old_mods).name.lower() == "mods" else Path(old_mods)
+        try:
+            rel = p.relative_to(old_port)
+            cand = new_port / rel
+            if cand.exists():
+                return cand
+        except ValueError:
+            pass
+    # Also relocate portable emulator load/<title> or nand/user/save paths if the emulator moved.
+    for anc in (Path(new_mods), *Path(new_mods).parents):
+        if anc.name.lower() == "load" and (anc.parent / "nand").is_dir():
+            emu_user = anc.parent
+            for marker in ("load", "nand"):
+                parts_low = [x.lower() for x in p.parts]
+                if marker in parts_low:
+                    idx = parts_low.index(marker)
+                    rel_emu = Path(*p.parts[idx:])
+                    cand = emu_user / rel_emu
+                    if cand.exists():
+                        return cand
+    return None
+
+
+def resolve_stale_nup_path(nup_path, new_mods, longshot_root=None):
+    """Locate a moved .nup game file under a new port folder or Longshot root when stale."""
+    raw = str(nup_path or "").strip()
+    if not raw:
+        return None
+    p = Path(raw)
+    if p.is_file():
+        return p
+    search_dirs = []
+    if new_mods:
+        nm = Path(new_mods)
+        port_dir = nm.parent if nm.name.lower() == "mods" else nm
+        search_dirs.extend([port_dir, port_dir.parent])
+    if longshot_root:
+        search_dirs.append(Path(longshot_root))
+    target_name = p.name.casefold()
+    seen = set()
+    fallback_nups = []
+    for d in search_dirs:
+        if not d or not d.is_dir():
+            continue
+        key = str(d.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            for entry in d.iterdir():
+                if entry.is_file() and entry.suffix.lower() == ".nup":
+                    if entry.name.casefold() == target_name:
+                        return entry
+                    fallback_nups.append(entry)
+        except OSError:
+            continue
+    if len(fallback_nups) == 1:
+        return fallback_nups[0]
+    return None

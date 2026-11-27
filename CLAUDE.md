@@ -8,10 +8,11 @@ Python 3.11+, no runtime type checker. Sources in `src/oot_rando`, tests in `tes
 Lowest first; a module imports only its own layer or lower ones:
 
 0. `formats` (file formats), `catalog` (names of the game: actors, items, flags,
-   `murmur3`), `paths`, `system` (emulators), `versions`, `pc_port`, `ed25519`, `update_key`
+   `murmur3`), `paths`, `system` (emulators), `versions`, `pc_port`, `ed25519`, `update_key`,
+   `path_safety` (path length limits), `native_dialogs` (file pickers)
 1. `game` (world model) → 2. `logic` (AP rules, options) → 3. `patching` (game file patches)
 4. `randomizer.full_randomizer` (solver) → 5. `archipelago.bridge`, `archipelago.apworld_build`
-6. rest of `randomizer` (generation, `verify`, `artifact`, `mods_folder`, `save_patch`)
+6. rest of `randomizer` (generation, `verify`, `artifact`, `mods_folder`, `save_patch`), `party_health`
 7. `tracker`, rest of `archipelago` (client), `updater`, `parties` → 8. `gui`, `__main__`
 
 A name several layers need (an actor name, a flag prefix) goes to `catalog`, never to a

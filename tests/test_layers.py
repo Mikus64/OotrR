@@ -4,14 +4,14 @@ Checked on every import, including the ones inside functions (an import deferred
 dodge a cycle is still a dependency). Layers, lowest first:
 
 0. ``formats``, ``catalog``, ``paths``, ``ed25519``, ``update_key``, ``system``, ``versions``,
-   ``pc_port``: file formats, the names of the game, where files live, emulators and PC ports,
-   version numbers;
+   ``pc_port``, ``path_safety``, ``native_dialogs``: file formats, the names of the game, where
+   files live, emulators and PC ports, version numbers, path limits, file pickers;
 1. ``game``: the remake's world model (sources, items, maps);
 2. ``logic``: the AP rules and the options;
 3. ``patching``: the patches applied to the game files;
 4. ``randomizer.full_randomizer``: the solver (also vendored in the apworld);
 5. ``archipelago.bridge``, ``archipelago.apworld_build``: the Archipelago world;
-6. the rest of ``randomizer``: seed generation, verification, installed seeds;
+6. the rest of ``randomizer``: seed generation, verification, installed seeds; ``party_health``;
 7. ``tracker``, the rest of ``archipelago`` (client), ``updater``, ``parties``;
 8. ``gui``, ``__main__``.
 
@@ -26,13 +26,14 @@ import unittest
 PACKAGE = Path(__file__).resolve().parents[1] / 'src' / 'oot_rando'
 
 LAYERS = [
-    ('formats', 'catalog', 'paths', 'ed25519', 'update_key', 'system', 'versions', 'pc_port', ''),
+    ('formats', 'catalog', 'paths', 'ed25519', 'update_key', 'system', 'versions', 'pc_port',
+     'path_safety', 'native_dialogs', ''),
     ('game',),
     ('logic',),
     ('patching',),
     ('randomizer.full_randomizer',),
     ('archipelago.bridge', 'archipelago.apworld_build', 'archipelago'),
-    ('randomizer',),
+    ('randomizer', 'party_health'),
     ('tracker', 'archipelago.client', 'archipelago.receive', 'archipelago.reload_test', 'updater', 'parties'),
     ('gui', '__main__'),
 ]

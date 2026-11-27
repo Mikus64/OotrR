@@ -19,6 +19,7 @@ datas = [
     # HookshotBuilder's Python.
     (str(PKG / 'tracker' / 'icon_extract.py'), 'oot_rando/tracker'),
     (str(ROOT / 'README.md'), '.'),
+    (str(PKG / 'gui' / 'icons'), 'oot_rando/gui/icons'),
 ]
 # Sources copied into the Archipelago .apworld (``python -m oot_rando apworld``).
 sys.path.insert(0, str(SRC))
