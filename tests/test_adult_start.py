@@ -37,6 +37,11 @@ class AdultStartOptionTests(unittest.TestCase):
         self.assertFalse(adult_start.enabled({'starting_age': 'child'}))
         self.assertFalse(adult_start.enabled(None))
 
+    def test_opening_waits_before_leaving(self):
+        params = adult_start.event_params()
+        self.assertEqual(next(iter(params)), adult_start.WAIT_EVENT)
+        self.assertEqual(params[adult_start.WAIT_EVENT], {'IsWaitEnd': True, 'Frames': 30})
+
     def test_ap_yaml_round_trip(self):
         values = rando_options.validate({'starting_age': 'adult'}, supported_only=True)
         imported, ignored = rando_options.from_ap_yaml(to_ap_yaml(values))
@@ -85,7 +90,11 @@ class AdultStartFlowTests(unittest.TestCase):
         self.assertEqual({k: v for k, v in after.items() if k in before}, before)
         self.assertEqual({k: v for k, v in after.items() if k not in before}, adult_start.event_params())
         events = {e.name: e for e in parse_flow(raw).flowchart.events}
-        self.assertEqual(events[adult_start.ANCHOR].data.nxt.v.name, adult_start.ARRIVAL_EVENTS[0])
+        self.assertEqual(events[adult_start.ANCHOR].data.nxt.v.name, adult_start.WAIT_EVENT)
+        wait = events[adult_start.WAIT_EVENT]
+        self.assertEqual(wait.data.actor.v.identifier.name, 'EventSystemActor')
+        self.assertEqual(wait.data.actor_action.v.v, 'EventWait')
+        self.assertEqual(wait.data.nxt.v.name, adult_start.ARRIVAL_EVENTS[0])
         self.assertIsNone(events[adult_start.WARP_EVENT].data.nxt.v)
         with self.assertRaises(ValueError):
             adult_start.patch_opening(raw)    # never twice
@@ -102,7 +111,7 @@ class AdultStartFlowTests(unittest.TestCase):
         while event is not None:
             chain.append(event.name)
             event = getattr(event.data, 'nxt', None) and event.data.nxt.v
-        self.assertEqual(chain, names + [*adult_start.ARRIVAL_EVENTS, adult_start.ERA_EVENT, adult_start.WARP_EVENT])
+        self.assertEqual(chain, names + [adult_start.WAIT_EVENT, *adult_start.ARRIVAL_EVENTS, adult_start.ERA_EVENT, adult_start.WARP_EVENT])
 
 
 if __name__ == '__main__':

@@ -2573,7 +2573,8 @@ class Application(PartiesPage):
         if coverage:
             self.result.set(self.result.get() + f'\n{coverage["changed_groups"]} ordinary chests changed, '
                             f'{coverage["changed_instances"]} physical variants; vanilla progression.')
-        self.apply_settings(Settings.from_dict(manifest['settings']))
+        # The New seed form is left alone: it starts on the Classic preset, unchanged, instead of
+        # showing the loaded seed's settings as changes (a seed string or settings file restores them).
         self.regen_settings = regeneration_settings(manifest)
         if manifest.get('tracking', {}).get('new_save_required'):
             self.result.set(self.result.get() + '\nA new game is needed for automatic tracking.')
