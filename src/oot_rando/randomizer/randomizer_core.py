@@ -30,7 +30,7 @@ from oot_rando.patching.qol_patches import (STATIC, STATIC_SOURCE_SHA256, DYNAMI
                          NIGHT_SKULLTULA_MODULE, keep_night_skulltulas_by_day)
 from oot_rando.game.randomizer_categories import CATEGORIES
 from oot_rando.game.world_maps import SAFE_CATEGORIES, build_world, effective_members
-from oot_rando.game.resource_allocations import allocation, grow_resources, add_resources
+from oot_rando.game.resource_allocations import allocation, grow_resources, add_resources, pack_member_growths
 from oot_rando.formats.byml_writer import lift_actors, patch_strings
 from oot_rando.logic import rando_options
 from oot_rando.archipelago.bridge import check_patch
@@ -76,7 +76,7 @@ from oot_rando.patching.soul_adapter import RSDB_FILES
 from oot_rando.patching.soul_adapter import build_soul_files
 from oot_rando.patching.soul_adapter import presence_changes
 
-GENERATOR_VERSION = '0.12.19'  # One carpenter: released cells open their door alone
+GENERATOR_VERSION = '0.12.20'  # Pack files get RESTBL room (red ice); bow uses the native param
 ADAPTER_VERSION = 'ap-glitchless-v5'   # v5: progressive tokens (every copy gives the next level)
 ADULT_MAP = MAP.replace('_Child_', '_Adult_')
 # The amiibo menu: given by Kaepora's first field arrival, now never played
@@ -363,15 +363,24 @@ def complete_event_info(extra_raw, nup, members, d, read):
 
 
 def compress_changed(extra_raw, files, growths, read, d):
-    """Recompress edited resources into ``files``; ``growths`` records how much each one grew."""
+    """Recompress edited resources into ``files``; ``growths`` records how much each one grew.
+
+    A pack's grown files are recorded too (largest growth over the packs sharing a file)
+    when the game's RESTBL allots them an entry of their own."""
+    rest_raw = decompress(read(RESTBL), d)
     for path, raw in sorted(extra_raw.items()):
         source = read(path)
         if not path.endswith('.zs'):       # stored uncompressed in the game (logic modules)
             growths[path] = max(len(raw) - len(source), 0)
             files[path] = raw
             continue
-        growths[path] = max(len(raw) - len(decompress(source, d)), 0)
+        plain = decompress(source, d)
+        growths[path] = max(len(raw) - len(plain), 0)
         files[path] = recompress(raw, source, d)
+        if path.endswith('.pack.zs'):
+            for member, growth in pack_member_growths(plain, raw).items():
+                if allocation(rest_raw, member) is not None:
+                    growths[member] = max(growths.get(member, 0), growth)
 
 
 def grow_resource_table(files, growths, new_sizes, read, d):
@@ -949,10 +958,6 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             compress(path, raw, read(template))
             # A copy of a resource (model, texture) needs at least the original's allocation.
             new_sizes[path] = max((len(raw) + 0x1000 + 4095) & ~4095, allocation(rest_raw, template) or 0)
-        # The private bow parameter inside the bow pack needs its own resource table entry,
-        # like every file of a pack: without one the game dereferences null loading the table.
-        from oot_rando.patching import elemental_arrows
-        new_sizes[elemental_arrows.PARAM] = allocation(rest_raw, elemental_arrows.SOURCE_PARAM) or 0x2000
         allocations = grow_resource_table(files, growths, new_sizes, read, d)
         if settings.skip_locked_cutscenes:
             report('Skippable cutscenes…')
