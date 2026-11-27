@@ -138,7 +138,8 @@ OPTIONS = [
             ('open', 'Open', 'The Gerudo Membership Card is handed over by the rescue of the last '
              'carpenter: with every carpenter free from the start its check would be lost.')), 'normal',
            'One carpenter: the first carpenter freed, in any cell, ends the fortress and brings the '
-           'rescue reward, then frees the remaining carpenters and opens every cell. '
+           'rescue reward, then frees the remaining carpenters and opens every cell; the keys of the '
+           'thieves not yet defeated lie in their cells. '
            'To be confirmed in game.', experimental=('fast',)),
     Option('open_gerudo_valley_bridge', 'World', 'Gerudo Valley bridge repaired',
            ((False, OK), (True, OK)), False,
