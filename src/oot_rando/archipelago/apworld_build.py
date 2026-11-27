@@ -32,7 +32,8 @@ VENDORED = ('__init__.py', 'paths.py',
             'archipelago/__init__.py', 'archipelago/bridge.py',
             'formats/__init__.py', 'formats/evfl_tools.py',
             'catalog/__init__.py', 'catalog/ap_items.py', 'catalog/dungeons.py', 'catalog/hashing.py',
-            'catalog/keys.py', 'catalog/kokiri_chests.py', 'catalog/songs.py', 'catalog/souls.py', 'catalog/tokens.py')
+            'catalog/keys.py', 'catalog/kokiri_chests.py', 'catalog/songs.py', 'catalog/souls.py', 'catalog/tokens.py',
+            'catalog/traps.py')
 # Becomes ``oot_remake/__init__.py``. Not a ``.py`` here: it imports Archipelago.
 TEMPLATE = 'archipelago/ap_world.py.in'
 

@@ -185,6 +185,21 @@ def verify(nup_path, seed_dir):
                                   seed_key=(manifest['settings'].get('archipelago') or {}).get('seed_key')
                                   or manifest['seed_id'])
     tokens, natives = plan['progressive']['tokens'], plan['progressive']['natives']
+    # Fake item traps: in chests and ground checks (never gifts or shops), as their own actor.
+    from oot_rando.catalog.traps import is_trap_item, trap_actor
+    from oot_rando.game.extra_sources import EVENT_SOURCES
+    placed_trap_items = sorted({p['ap_item'] for p in full if is_trap_item(p['ap_item'])})
+    for placement in full:
+        if not is_trap_item(placement['ap_item']):
+            continue
+        reward = placement.get('reward_actor', placement['actor'])
+        if (placement.get('source', 'chest') in EVENT_SOURCES + ('shop',)
+                or (canonical_of(reward) if is_derived(reward) else reward) != trap_actor(placement['ap_item'])):
+            raise ValueError('Fake item trap outside a chest or a pickup: ' + placement['id'])
+    from oot_rando.logic import rando_options
+    trap_level = rando_options.stored_value(manifest['settings']['full'] or {}, 'fake_item_traps')
+    if placed_trap_items and trap_level == 'none':
+        raise ValueError('Fake item traps without their option.')
     for placement in full:
         reward = placement.get('reward_actor', placement['actor'])
         canonical = canonical_of(reward) if is_derived(reward) else reward
@@ -528,6 +543,14 @@ def verify(nup_path, seed_dir):
                     raise ValueError('Dungeon keys differ from the spoiler.')
                 original = add_key_hook(original, records)[0]
                 report['key_items'] = len(records)
+            if path == ACTION_GUIDE_FLOW and (placed_trap_items or skips.get('fake_traps')):
+                # Fake item traps, rebuilt from the spoiler alone.
+                from oot_rando.patching.fake_traps import add_trap_hook, trap_records
+                records = trap_records(placed_trap_items)
+                if records != (skips.get('fake_traps') or {}).get('records'):
+                    raise ValueError('Fake item traps differ from the spoiler.')
+                original = add_trap_hook(original, records)[0]
+                report['fake_traps'] = len(records)
             all_tokens = sorted(set(tokens.values()) | {n['token'] for n in natives})
             if path == ACTION_GUIDE_FLOW and (all_tokens or skips.get('progressive')):
                 # Progressive tokens: converted at the start of every item get.
@@ -888,14 +911,14 @@ def verify(nup_path, seed_dir):
         if actor in once_actors:
             derived.add(actor)
             canonical = once_actors[actor]['canonical']
-            if canonical.startswith(('Item_Soul_', 'Item_AP_')) or is_key_actor(canonical) or is_token(canonical):
+            if canonical.startswith(('Item_Soul_', 'Item_AP_', 'Item_Trap_')) or is_key_actor(canonical) or is_token(canonical):
                 soul_actors.add(canonical)
-        elif actor.startswith(('Item_Soul_', 'Item_AP_')) or is_key_actor(actor) or is_token(actor):
+        elif actor.startswith(('Item_Soul_', 'Item_AP_', 'Item_Trap_')) or is_key_actor(actor) or is_token(actor):
             soul_actors.add(actor)
         elif is_derived(actor):
             derived.add(actor)
             canonical = canonical_of(actor)
-            if canonical.startswith(('Item_Soul_', 'Item_AP_')) or is_key_actor(canonical) or is_token(canonical):
+            if canonical.startswith(('Item_Soul_', 'Item_AP_', 'Item_Trap_')) or is_key_actor(canonical) or is_token(canonical):
                 soul_actors.add(canonical)  # derived soul/key/token: the generated item must exist too
         elif actor not in master_actors and 'Pack/Actor/' + actor + '.pack.zs' not in members:
             raise ValueError('Actor missing: ' + actor)
@@ -905,7 +928,9 @@ def verify(nup_path, seed_dir):
             derived.add(native['after'])
     source_actors = {variant['textured_actor'] for variants in textured_sources.values()
                      for variant in variants.values()}
-    generated = soul_actors | derived | master_actors | source_actors
+    from oot_rando.catalog.traps import SENSOR_ACTOR, sprung_flag
+    sensor_actors = {SENSOR_ACTOR} if placed_trap_items else set()
+    generated = soul_actors | derived | master_actors | source_actors | sensor_actors
     if generated:
         rest = decompress((seed_dir / 'romfs' / RESTBL).read_bytes(), d)
         count = struct.unpack_from('<I', rest, 14)[0]
@@ -923,6 +948,9 @@ def verify(nup_path, seed_dir):
         for record in manifest.get('skips', {}).get('key_items', {}).get('records', []):
             if record['kind'] == 'ring' and murmur3(record['applied']) not in flags:
                 raise ValueError('Missing key ring flag: ' + record['folder'])
+        for item in placed_trap_items:
+            if murmur3(sprung_flag(trap_actor(item))) not in flags:
+                raise ValueError('Missing fake item trap flag: ' + item)
         for actor in sorted(a for a in soul_actors if is_token(a)):
             if murmur3(applied_flag(actor)) not in flags:
                 raise ValueError('Missing progressive token flag: ' + actor)
@@ -932,12 +960,21 @@ def verify(nup_path, seed_dir):
             Byml(pack[f'Actor/{actor}.engine__actor__ActorParam.bgyml'])
             if zlib.crc32(pack_path[:-3].encode()) not in crcs:
                 raise ValueError('Missing RESTBL entry: ' + actor)
-            required = (tables['ActorInfo'], tables['GameActorInfo']) if actor in source_actors else tables.values()
+            required = ((tables['ActorInfo'], tables['GameActorInfo']) if actor in source_actors | sensor_actors
+                        else tables.values())
             if any(actor not in rows for rows in required):
                 raise ValueError('Missing RSDB row: ' + actor)
             if actor in soul_actors and murmur3(FLAG_PREFIX + actor) not in flags:
                 raise ValueError('Missing save flag: ' + actor)
         report['textured_sources'] = len(source_actors)
+    if placed_trap_items:
+        # Fake item traps freeze child Link too (vanilla: adult only).
+        from oot_rando.patching.fake_traps import CHILD_PACK, ELINK, child_ice_shell, enable_child_freeze
+        if out(CHILD_PACK) != enable_child_freeze(decompress(nup.read(members[CHILD_PACK]), d)):
+            raise ValueError('Child Link cannot be frozen by the fake item traps.')
+        if out(ELINK) != child_ice_shell(decompress(nup.read(members[ELINK]), d)):
+            raise ValueError('Child Link has no ice shell for the fake item traps.')
+        report['child_freeze'] = True
     multiworld = manifest.get('archipelago')
     if multiworld is not None:
         # Placed by Archipelago: victory may need items of other worlds (checked by

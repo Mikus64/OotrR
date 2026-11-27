@@ -641,7 +641,12 @@ def pose_lender(family):
 
 def pose_parts(read_raw, family):
     """``(files, components, actor_info)`` posing a token like its first level, or None."""
-    lender = pose_lender(family)
+    return actor_pose_parts(read_raw, pose_lender(family))
+
+
+def actor_pose_parts(read_raw, lender):
+    """``(files, components, actor_info)`` posing a generated item like ``lender``, or None
+    when ``lender`` is not made for the item-get display."""
     pack = sarc(read_raw(f'Pack/Actor/{lender}.pack.zs'))
     components = resolve_components(pack, lender, byml_codec)
     refs = {key: components.get(key) for key in POSE_KEYS}
@@ -652,7 +657,7 @@ def pose_parts(read_raw, family):
         copy_ref(pack, ref, files, byml_codec)
     animation = pack_path(refs['AnimationRef'])
     if animation not in files:
-        raise ValueError('Token pose animation not found: ' + lender)
+        raise ValueError('Item pose animation not found: ' + lender)
     resources = byml_codec.load(files[animation])['root'].get('AnimationResources')
     return files, refs, {'AnimationResources': resources}
 

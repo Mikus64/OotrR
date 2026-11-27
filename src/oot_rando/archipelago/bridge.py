@@ -43,7 +43,7 @@ PATCH_SUFFIX = '.aprmk'
 # Item standing in for another player's item: given by any location form.
 FOREIGN_STANDIN = 'Rupee (1)'
 # Remake options that are not exposed to Archipelago (fixed, or replaced by an AP common option).
-AP_SKIPPED = {'accessibility'}
+AP_SKIPPED = {'accessibility', 'fake_item_traps'}
 FILLER = ('Rupee', 'Rupees (', 'Deku Nuts (', 'Deku Stick', 'Arrows (', 'Bombs (', 'Deku Seeds (', 'Bombchus (',
           'Map (', 'Compass (', 'Remake: ', 'Recovery Heart', 'Ice Trap')
 

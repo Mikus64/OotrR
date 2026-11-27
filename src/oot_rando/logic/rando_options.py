@@ -289,6 +289,15 @@ OPTIONS = [
             ('minimal', 'Minimal (one bottle, no extra hearts)', OK)), 'balanced',
            'Applies to the shuffled locations only (their count never changes): extra copies '
            'replace rupees and other filler, removed copies become rupees.'),
+    Option('fake_item_traps', 'Items', 'Fake item traps',
+           (('none', 'None', OK), ('some', 'Some (one per major item)', OK),
+            ('plentiful', 'Plentiful (two per major item, plus dungeon rewards and songs)', OK)), 'none',
+           'Fake copies of items (hookshot, bow, boots…), in chests and on the ground (freestanding, '
+           'skulltulas, pots, rocks…), never NPC gifts or shops. Some: one per major item of the pool. '
+           'Plentiful: two per major item, plus one per medallion, spiritual stone and song. A trap looks '
+           'like the real item, but its text says it is a trap and Link is frozen. Replaces filler. '
+           'Not available for Archipelago. To be confirmed in game.',
+           experimental=('some', 'plentiful')),
     # --------------------------------------------------------------- Dungeons
     Option('shuffle_mapcompass', 'Dungeons', 'Maps and compasses',
            (('vanilla', 'Vanilla', OK), ('dungeon', 'In their dungeon', OK), ('remove', 'Removed', OK),
@@ -365,7 +374,8 @@ OUT_OF_SCOPE = ('Entrance shuffle, Master Quest, multiworld and gossip stone hin
 
 # Options added after a release, left out of the stored settings at this value: stored settings
 # without the option mean it, and seeds made before the option keep their identity.
-UNRECORDED = {'spiritual_stones': 'all', 'door_of_time_requirement': 'song', 'blue_fire_arrows': False}
+UNRECORDED = {'spiritual_stones': 'all', 'door_of_time_requirement': 'song', 'blue_fire_arrows': False,
+              'fake_item_traps': 'none'}
 
 
 def recorded(values):
