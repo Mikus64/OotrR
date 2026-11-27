@@ -86,6 +86,18 @@ def _allocation_index(raw):
     return by_name, by_crc
 
 
+def pack_member_growths(source, result):
+    """``{member: growth}`` of the files of a pack (SARC) that grew in ``result``.
+
+    The game allots each file of a pack its own RESTBL entry: a member that outgrows
+    its entry is not loaded (a red-ice AI larger than its allocation left no red ice).
+    Members absent from ``source`` are new resources and need their own entry."""
+    from oot_rando.formats.inspect_resources import sarc
+    before, after = sarc(source), sarc(result)
+    return {name: len(raw) - len(before[name]) for name, raw in after.items()
+            if name in before and len(raw) > len(before[name])}
+
+
 def allocation(raw, path):
     """Current RESTBL allocation of a resource, or None when it has no entry."""
     by_name, by_crc = _allocation_index(bytes(raw))

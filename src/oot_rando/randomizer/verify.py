@@ -90,6 +90,8 @@ def output_invariants(nup, members, seed_dir, d):
 
     * every resource that grew has an allocation grown at least as much in the seed's
       RESTBL, and every new resource has an entry (a short allocation crashes the game);
+      so does every grown file of a pack that has an entry of its own (a short one is not
+      loaded: the actor is missing);
     * every GameData name that a changed event flow starts to use (``GameDataName``
       parameters absent from the game's flow) exists in the seed's GameData.
     """
@@ -110,12 +112,20 @@ def output_invariants(nup, members, seed_dir, d):
             if after is None:
                 raise ValueError('New resource without a RESTBL entry: ' + path)
             continue
-        before = allocation(game_table, path)
-        growth = size - len(unpack(path, nup.read(members[path])))
-        if before is not None and growth > 0:
-            grown += 1
-            if after is None or after < before + growth:
-                raise ValueError(f'RESTBL allocation too small for {path}: {after} < {before} + {growth}')
+        source = unpack(path, nup.read(members[path]))
+        checked = {path: size - len(source)}
+        if path.endswith('.pack.zs'):   # each file of a pack has its own allocation
+            produced = sarc(unpack(path, (romfs / path).read_bytes()))
+            for member, raw in sarc(source).items():
+                if member in produced:
+                    checked[member] = max(checked.get(member, 0), len(produced[member]) - len(raw))
+        for name, growth in checked.items():
+            before = allocation(game_table, name)
+            if before is not None and growth > 0:
+                grown += 1
+                after = allocation(seed_table, name)
+                if after is None or after < before + growth:
+                    raise ValueError(f'RESTBL allocation too small for {name}: {after} < {before} + {growth}')
 
     def names(raw):
         found = set()
@@ -317,7 +327,9 @@ def verify(nup_path, seed_dir):
         for path, fix in elemental_arrows.resource_fixes():
             raw = (seed_dir / 'romfs' / path).read_bytes()
             raw = decompress(raw, d) if path.endswith('.zs') else raw
-            if fix(raw) != raw:
+            # Seeds before 0.12.20 hold the private bow parameter (crashes the menu).
+            old = path == elemental_arrows.PACK and elemental_arrows.OLD_PARAM in sarc(raw)
+            if fix(raw) != raw and not old:
                 raise ValueError('Elemental arrow protection missing: ' + path)
         report['elemental_arrows'] = True
     if 'bomb_refills' in manifest.get('skips', {}):
