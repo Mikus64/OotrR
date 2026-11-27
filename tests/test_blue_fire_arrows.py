@@ -5,6 +5,7 @@ from collections import Counter
 import os
 import unittest
 
+from oot_rando.archipelago.bridge import to_ap_yaml
 from oot_rando.formats import byml_codec as b
 from oot_rando.formats.inspect_resources import sarc
 from oot_rando.patching import blue_fire_arrows as a
@@ -20,7 +21,7 @@ class OptionsAndLogic(unittest.TestCase):
         self.assertTrue(next(s for s in ap_option_specs() if s['name'] == 'blue_fire_arrows'))
         for enabled in (False, True):
             values = options.validate({'blue_fire_arrows': enabled}, supported_only=True)
-            parsed, ignored = options.from_ap_yaml(options.to_ap_yaml(values))
+            parsed, ignored = options.from_ap_yaml(to_ap_yaml(values))
             self.assertFalse(ignored)
             self.assertEqual(parsed['blue_fire_arrows'], enabled)
             self.assertEqual(full_options({'blue_fire_arrows': enabled})[0]['blue_fire_arrows'], enabled)

@@ -62,7 +62,7 @@ def main():
         print("  python tools/sync_label_overrides.py \"https://docs.google.com/...\"")
         sys.exit(1)
 
-    print(f"Fetching sheet...")
+    print("Fetching sheet...")
     try:
         text = fetch_csv(url)
     except Exception as e:

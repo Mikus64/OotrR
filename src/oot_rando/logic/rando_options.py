@@ -570,38 +570,6 @@ AP_GAME = 'OoT Remake'
 AP_APP_SECTION = 'OoT Remake application'
 
 
-def to_ap_yaml(values, name='Player', open_forest=True):
-    """Archipelago YAML of the ``OoT Remake`` game (the multiworld player YAML).
-
-    The options Archipelago does not take (or takes in another form) follow in an
-    ``OoT Remake application`` section, which Archipelago ignores and
-    :func:`from_ap_yaml` reads back, so the export round-trips exactly.
-    """
-    import json
-    from oot_rando.archipelago.bridge import ap_option_specs, player_yaml
-    values = validate(values, supported_only=True)
-    exposed = {spec['name'] for spec in ap_option_specs()} | {'start_inventory_from_pool'}
-    lines = [player_yaml(values, open_forest, name).rstrip('\n'),
-             '# Options of the OoT Randomizer application, ignored by Archipelago:',
-             AP_APP_SECTION + ':']
-    for option in OPTIONS:
-        if option.name in exposed:
-            continue
-        value = values[option.name]
-        if option.name == 'logic_tricks':
-            text = '[]' if value == 'none' else json.dumps(value)  # read back as a trick list
-        elif option.kind == 'items':
-            text = json.dumps(value, ensure_ascii=False)
-        elif option.kind == 'list':
-            text = json.dumps(list(value), ensure_ascii=False)
-        elif isinstance(value, bool):
-            text = 'true' if value else 'false'
-        else:
-            text = json.dumps(value if isinstance(value, str) else str(value), ensure_ascii=False)
-        lines.append(f'  {option.name}: {text}')
-    return '\n'.join(lines) + '\n'
-
-
 # Randomization tab: each category checkbox drives these complete-mode options
 # ((option, value when checked, value when unchecked), …). Categories absent
 # here have no proven adapter and stay greyed in complete mode.
@@ -636,3 +604,23 @@ def set_category(values, category, checked):
     for option, on, off in CATEGORY_OPTIONS[category]:
         result[option] = on if checked else off
     return result
+
+
+def ap_settings(options, open_forest):
+    """Settings of the AP rules (``logic.rules.Logic``) for remake options ``options``."""
+    values = {name: options[name] for name in ('open_kakariko', 'open_door_of_time', 'door_of_time_requirement', 'zora_fountain',
+                                               'spiritual_stones', 'gerudo_fortress', 'open_gerudo_valley_bridge',
+                                               'starting_age', 'bridge', 'trials',
+                                               'shuffle_ganon_bosskey', 'big_poe_count', 'chicken_count',
+                                               'free_scarecrow', 'shuffle_child_trade', 'logic_rules',
+                                               'shuffle_master_sword', 'shuffle_gerudo_card',
+                                               'logic_no_night_tokens_without_suns_song',
+                                               'skip_child_zelda')}
+    values['open_forest'] = 'closed_deku' if open_forest else 'closed'
+    # AP rules' ``keysanity``: false lets one Fire Temple door open without its key
+    # ("Fire Temple Lower Locked Door": (Small Key, 8) or not keysanity), OoTR's
+    # "a vanilla key may sit behind its own door". Shuffled small keys are key rings
+    # here (one item, every key at once): the ring itself could go behind that door
+    # (Discord 16/11: Fire Temple ring on Volvagia, boss key chest past the door).
+    values['keysanity'] = options.get('shuffle_smallkeys', 'vanilla') != 'vanilla'
+    return values

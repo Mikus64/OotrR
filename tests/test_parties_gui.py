@@ -131,7 +131,7 @@ class PartiesGuiTests(unittest.TestCase):
             return artifact(Path(mods), settings.seed)
         with patch.object(self.app, 'party_destination', return_value=self.saves), \
                 patch('oot_rando.gui.parties_page.generate_isolated', side_effect=generate), \
-                patch('oot_rando.gui.parties_page.messagebox.showinfo'):
+                patch.object(self.app, 'notify'):
             self.app.generate_party(self.base / 'game.nup', self.mods, Settings('Generated'))
             self.finish_job()
         self.assertEqual(self.app.party_context['name'], 'Nouvelle aventure')
@@ -154,7 +154,7 @@ class PartiesGuiTests(unittest.TestCase):
             return artifact(Path(mods), settings.seed)
         with patch.object(self.app, 'party_display_name', return_value='Aventure mise à jour'),                 patch.object(self.app, 'party_destination', return_value=self.saves), \
                 patch('oot_rando.gui.parties_page.generate_isolated', side_effect=generate), \
-                patch('oot_rando.gui.parties_page.messagebox.showinfo'), \
+                patch.object(self.app, 'notify'), \
                 patch.object(self.app, 'offer_save_migration'):
             self.app.generate_party(self.base / 'game.nup', self.mods, Settings('A'), continuing=self.app.party_context)
             self.finish_job()

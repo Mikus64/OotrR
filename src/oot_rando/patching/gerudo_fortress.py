@@ -10,7 +10,8 @@ import uuid
 from oot_rando.formats import byml_codec
 from oot_rando.formats.inspect_resources import sarc
 from oot_rando.patching.soul_adapter import murmur3
-from oot_rando.patching.story_fixes import _Chart, _params
+from oot_rando.patching.story_fixes import _Chart
+from oot_rando.formats.evfl_tools import event_params_of
 
 CARD = 'IsGet.Item_Token_Gerudo'
 RESCUED = 'SageOfSpirit_IsAfter_Step01_Exp'
@@ -207,7 +208,7 @@ def membership_flow(raw, names):
     flow = _Chart(raw)
     for name in names:
         event = flow.event(name, 'SwitchEvent')
-        if (_params(event) != {'GameDataName': RESCUED}
+        if (event_params_of(event) != {'GameDataName': RESCUED}
                 or event.data.actor_query.v.v != 'EventQueryIsGameDataBoolExp'):
             raise ValueError('Unexpected Gerudo membership dialogue: ' + name)
         event.data.actor_query = make_rindex(
@@ -224,7 +225,7 @@ def free_remaining_carpenters(raw):
     flow = _Chart(raw)
     before = flow.event('Event192', 'ActionEvent')
     step = flow.event('Event146', 'ActionEvent')
-    if before.data.nxt.v is not step or _params(step).get('StepName') != 'Step02':
+    if before.data.nxt.v is not step or event_params_of(step).get('StepName') != 'Step02':
         raise ValueError('Unexpected fortress completion sequence.')
     following = step
     # ``Saved`` is what a native rescue writes (``StepCheck_Clear``): the cell's
