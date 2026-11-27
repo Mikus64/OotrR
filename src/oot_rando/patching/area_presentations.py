@@ -66,6 +66,27 @@ LOADING_WAIT = 'RandoLoadingWait_'
 LOADING_ACTOR, LOADING_ACTION = 'UISystemActor', 'EventWaitCloseLoadingFade'
 
 
+# Every scene that marks an area visited: its area name frame
+# (``EventTriggerOpenLocationUI``) sets ``IsVisitLocation.<area>`` (scan of 1.1.1, 27/11).
+LOCATION_FRAMES = {
+    'Dm_DeathMtCrater_0000': 'DeathMountainCrater', 'Dm_DeathMtTrail_0000': 'DeathMountainTrail',
+    'Dm_Deku_0000': 'InsideTheDekuTree', 'Dm_DesertColossus_0000': 'DesertColossus',
+    'Dm_DodongoCave_0000': 'DodongoCavern', 'Dm_ForestTemple_0000': 'ForestTemple',
+    'Dm_GanonCastle_0000': 'GanonCastle', 'Dm_GerudoValley_0000': 'GerudoValley',
+    'Dm_Gerudo_0000': 'GerudoFortress', 'Dm_Goron_0000': 'GoronCity', 'Dm_Graveyard_0000': 'Graveyard',
+    'Dm_HrlCastle_0000': 'HyruleCastle', 'Dm_HrlCastle_0005': 'Market', 'Dm_HrlField_0000': 'HyruleField',
+    'Dm_InsideGanonCastle_0003': 'InsideGanonCastle', 'Dm_InsideJabu_Jabu_0000': 'InsideJabuJabuBelly',
+    'Dm_Kakariko_0000': 'KakarikoVillage', 'Dm_Kokiri_0045': 'KokiriForest', 'Dm_LakeHrl_0000': 'LakeHylia',
+    'Dm_LakeHrl_0003': 'LakeHylia', 'Dm_LakeHrl_0005': 'LakeHylia', 'Dm_LonLon_0010': 'LonLonRanch',
+    'Dm_TimeTemple_0000': 'TimeTemple', 'Dm_TimeTemple_0065': 'Market', 'Dm_ZoraFountain_0000': 'ZoraFountain',
+    'Dm_Zora_0000': 'ZoraDomain', 'Goto_FireTemple': 'FireTemple',
+    'Goto_GerudoTrainingGround': 'GerudoTrainingGround', 'Goto_IceCave': 'IceCavern',
+    'Goto_KakarikoWells': 'BottomOfTheWell', 'Goto_SacredForest': 'SacredForestMeadow',
+    'Goto_ShadowTemple': 'ShadowTemple', 'Goto_SpiritTemple': 'SpiritTemple', 'Goto_WaterTemple': 'WaterTemple',
+    'Goto_ZoraRiver': 'ZoraRiver', 'Npc_Dream': 'DreamWorld',
+}
+
+
 def start_values():
     """GameData values written at the end of the new-game opening (full mode)."""
     values = {}
@@ -73,6 +94,19 @@ def start_values():
         values[played] = True
         values[visit] = True
     return values
+
+
+def with_area_visits(values):
+    """``values`` plus the area visited by each scene it marks played without playing it.
+
+    A scene marked played at the start never runs, so neither does its area name frame:
+    the map menu then showed "???" there for the whole game (Hyrule Field and Hyrule
+    Castle, marked played for Kaepora's first arrival, 27/11)."""
+    out = dict(values)
+    for scene, area in LOCATION_FRAMES.items():
+        if out.get('HavePlayedEvent.' + scene) is True:
+            out.setdefault('IsVisitLocation.' + area, True)
+    return out
 
 
 def auto_skip_presentation(raw, fade_in=True):

@@ -76,7 +76,7 @@ from oot_rando.patching.soul_adapter import RSDB_FILES
 from oot_rando.patching.soul_adapter import build_soul_files
 from oot_rando.patching.soul_adapter import presence_changes
 
-GENERATOR_VERSION = '0.12.21'  # Adult start waits 30 frames before the Temple of Time warp
+GENERATOR_VERSION = '0.12.22'  # Areas of scenes marked played at the start are marked visited (map)
 ADAPTER_VERSION = 'ap-glitchless-v5'   # v5: progressive tokens (every copy gives the next level)
 ADULT_MAP = MAP.replace('_Child_', '_Adult_')
 # The amiibo menu: given by Kaepora's first field arrival, now never played
@@ -770,6 +770,10 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             start_values.update(area_presentations.start_values())
             if castle_skip:
                 start_values.update(child_castle_skip.START_VALUES)
+            # Scenes marked played never open their area name frame: mark the area visited.
+            visited = area_presentations.with_area_visits(start_values)
+            story['area_visits'] = sorted(set(visited) - set(start_values))
+            start_values = visited
             if start_values:
                 check_start_values(extra_raw[GAMEDATA], start_values)
                 extra_raw[opening] = add_start_values(extra_raw[opening], 'RandoCollected_Event3', start_values)
