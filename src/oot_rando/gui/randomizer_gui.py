@@ -92,6 +92,9 @@ OPTION_COPY = {
                                   'Songs by name ("Sarias Song"). Tunics are not available yet.'),
     'item_pool_value': ('Item pool', 'Plentiful: an extra copy of the major items. Scarce: at most 3 bottles '
                         'and half the hearts. Minimal: one bottle and no extra hearts.'),
+    'fake_item_traps': ('Fake item traps', 'Fake copies of items hide in chests and on the ground. They look '
+                        'real, but Link is frozen. Some: one per major item. Plentiful: two per major item, '
+                        'plus the medallions, spiritual stones and songs. Not tested in game yet.'),
     'logic_no_night_tokens_without_suns_song': ("Night skulltulas need Sun's Song",
                                                  'Waiting for the night is not expected by the logic.'),
 }
@@ -203,7 +206,8 @@ SETTING_GROUPS = (
      ['accessibility', 'logic_no_night_tokens_without_suns_song', 'game:skulltulas_always_present']),
     ('Item pool', 'What is shuffled and what you start with.',
      ['item_pool_value', 'start_inventory_from_pool', 'shuffle_kokiri_sword',
-      'shuffle_master_sword', 'shuffle_gerudo_card', 'shuffle_remake_items', 'blue_fire_arrows']),
+      'shuffle_master_sword', 'shuffle_gerudo_card', 'shuffle_remake_items', 'blue_fire_arrows',
+      'fake_item_traps']),
     ('Shuffled locations', 'Where items can be found.',
      ['shuffle_chests', 'chest_matching', 'tokensanity', 'shuffle_freestanding_items', 'shuffle_npc_gifts',
       'shuffle_quest_rewards', 'shuffle_boss_rewards', 'shuffle_great_fairies', 'shuffle_song_items',

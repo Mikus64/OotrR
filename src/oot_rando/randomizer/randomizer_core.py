@@ -567,6 +567,11 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
                 from oot_rando.patching.key_adapter import add_key_hook
                 extra_raw[ACTION_GUIDE_FLOW], key_hook = add_key_hook(extra_raw[ACTION_GUIDE_FLOW],
                                                                       full['key_items'])
+            if full.get('fake_traps'):
+                # Fake item traps: Link is frozen once a trap is got (patching/fake_traps.py).
+                from oot_rando.patching.fake_traps import add_trap_hook
+                extra_raw[ACTION_GUIDE_FLOW], trap_hook = add_trap_hook(extra_raw[ACTION_GUIDE_FLOW],
+                                                                        full['fake_traps'])
             if full['progressive']['actors']:
                 # Progressive tokens: the next level, at the start of every item get.
                 from oot_rando.patching.progressive import add_converter
@@ -805,6 +810,8 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
             skips['scrub_goods'] = scrub_goods
             if full.get('key_items'):
                 skips['key_items'] = {'records': full['key_items'], 'hook': key_hook}
+            if full.get('fake_traps'):
+                skips['fake_traps'] = {'records': full['fake_traps'], 'hook': trap_hook}
             if full['progressive']['actors']:
                 skips['progressive'] = {'converter': progressive_converter, 'hooks': full['progressive']['hooks']}
             skips['sword_chest'] = sword_chest
@@ -1124,7 +1131,7 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         changes[resource].extend(edits)
     actors = {p['after'] for p in plan['placements'] + natives} - {p['before'] for p in plan['placements']}
     for actor in sorted(actors):
-        if (actor.startswith(('Item_Soul_', 'Item_AP_')) or is_derived(actor) or actor in repeatable_actors
+        if (actor.startswith(('Item_Soul_', 'Item_AP_', 'Item_Trap_')) or is_derived(actor) or actor in repeatable_actors
                 or _is_key_actor(actor) or is_token(actor)
                 or (settings.full.get('shuffle_master_sword') and actor == MASTER_SWORD_ACTOR)):
             continue
@@ -1198,6 +1205,20 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
             ap_modified, ap_new = build_ap_files(ap_read, ap_items, messages)
             modified.update(ap_modified)
             new.update(ap_new)
+    # Fake item traps: the imitation items, their freeze sensor and texts (patching/fake_traps.py).
+    from oot_rando.patching.fake_traps import build_trap_files, placed_traps, trap_records
+    traps = placed_traps(plan['placements'])
+    if traps:
+        plan['fake_traps'] = trap_records(traps)
+        report(f'Building {len(traps)} fake item traps…')
+        messages = sorted(m for m in members if m.startswith('Mals/') and '.Product.110.' in m)
+
+        def trap_read(path):
+            return modified[path] if path in modified else decompress(read(path), dictionaries_)
+
+        trap_modified, trap_new = build_trap_files(trap_read, traps, messages)
+        modified.update(trap_modified)
+        new.update(trap_new)
     tokens = sorted(set(plan['progressive']['tokens'].values()) | {n['token'] for n in natives})
     plan['progressive']['actors'] = tokens
     if tokens:

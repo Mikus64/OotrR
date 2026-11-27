@@ -175,6 +175,7 @@ from oot_rando.catalog.tokens import (  # noqa: F401  (moved to oot_rando.catalo
 )
 from oot_rando.catalog.ap_items import ap_actor
 from oot_rando.catalog.ap_items import is_ap_item
+from oot_rando.catalog.traps import actor_trap, is_trap_actor, is_trap_item, trap_actor
 # Families whose NPC upgrades need the base item (chest) in the remake.
 BASE_REQUIRED = ('Bomb Bag', 'Bow', 'Slingshot')
 # Unshuffled sources giving a fixed tier (others upgrade dynamically).
@@ -203,6 +204,8 @@ def actor_item(actor, folder):
         item = key_actor_item(actor)
         if item:
             return item
+    if is_trap_actor(actor):
+        return actor_trap(actor)
     if actor in DUNGEON_ACTORS:
         dungeon = FOLDER_DUNGEON.get(folder)
         if not dungeon:
@@ -218,6 +221,8 @@ def item_actor(item, folder):
     """Remake actor for an AP item placed in ``folder`` (dungeon items stay generic)."""
     if is_ap_item(item):
         return ap_actor(item)
+    if is_trap_item(item):
+        return trap_actor(item)
     if item.startswith('Small Key Ring ('):
         from oot_rando.catalog.keys import item_folder, ring_actor
         return ring_actor(item_folder(item))

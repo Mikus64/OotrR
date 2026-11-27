@@ -30,6 +30,7 @@ from oot_rando.patching.key_adapter import ring_item
 from oot_rando.patching.key_adapter import small_key_item
 from oot_rando.patching.key_adapter import small_key_item as _small_key
 from oot_rando.patching.key_adapter import start_logic_items
+from oot_rando.catalog.traps import is_trap_item, planned_traps
 
 FILLER_PRIORITY = ('Rupee (1)', 'Rupees (5)', 'Deku Nuts (5)', 'Deku Stick (1)', 'Arrows (5)', 'Bombs (5)',
                    'Rupees (20)', 'Arrows (10)', 'Deku Seeds (30)', 'Bombchus (5)', 'Arrows (30)',
@@ -79,6 +80,27 @@ def apply_item_pool(pool, value, relevant, never_extra=()):
     elif value == 'minimal':
         keep_at_most(EMPTY_BOTTLES, 1)
         keep_at_most(MINIMAL_REMOVED, 0)
+    return pool
+
+
+def add_fake_traps(pool, spare, level='some'):
+    """The traps of option value ``level`` (``catalog.traps.planned_traps``) in ``pool``.
+
+    ``spare``: filler item -> copies that may be replaced. Each trap takes the place of
+    one of them, lowest value first, so the number of items never changes; without
+    filler left, the remaining traps are not added. Traps are not progression: the
+    logic ignores them.
+    """
+    pool, spare = list(pool), Counter(spare)
+    rank = {name: index for index, name in enumerate((GREEN_RUPEE,) + FILLER_PRIORITY)}
+    for trap in planned_traps(pool, level):   # most important first, when filler runs out
+        fillers = sorted(+spare, key=lambda i: (rank.get(i, len(rank)), i))
+        if not fillers:
+            break
+        cheapest = fillers[0]
+        spare[cheapest] -= 1
+        # The last copy goes: the pool order stays stable (as in balance_pool).
+        pool[len(pool) - 1 - pool[::-1].index(cheapest)] = trap
     return pool
 
 
@@ -596,6 +618,12 @@ def prepare(data, options, groups, enemies, seed_key, open_forest=True, progress
     castle_junk = castle_junk + adult_junk
     # Whatever was added or replaced above: exactly one item per shuffled check.
     pool = balance_pool(pool, len(shuffled), removable, keep={CASTLE_JUNK: len(castle_junk)})
+    if options.get('fake_item_traps', 'none') != 'none':
+        # The castle junk stays reserved for its checks.
+        # Only plain filler (rupees, ammunition…) leaves; the castle junk stays reserved.
+        junk = {GREEN_RUPEE, *FILLER_PRIORITY}
+        spare = Counter(i for i in pool if i in junk and removable(i)) - Counter({CASTLE_JUNK: len(castle_junk)})
+        pool = add_fake_traps(pool, spare, options['fake_item_traps'])
     logic_locations =sorted(g for g in shuffled if vname(g) in logic.virtual)
     restricted_dungeon = {}   # item -> (zone rule, dungeon)
     for item in set(pool):
@@ -719,8 +747,10 @@ def plan(data, options, groups, enemies, seed_key, open_forest=True, progress=No
         rest_counter = Counter(rest)
         rest_counter[CASTLE_JUNK] -= len(c.castle_junk)
         # Dungeon-bound items outside the logic (maps, compasses) first, in
-        # chests the logic cannot use whenever possible.
-        for item in rng.shuffle([i for i in rest if i in restricted_dungeon]):
+        # chests the logic cannot use whenever possible; then the fake item traps
+        # (chests and ground checks, item_forms.can_take).
+        for item in (rng.shuffle([i for i in rest if i in restricted_dungeon])
+                     + rng.shuffle([i for i in rest if is_trap_item(i)])):
             free = [g for g in shuffled if g not in placed and allowed(item, g)]
             junk_free = [g for g in free if vname(g) not in logic.virtual]
             if not free:

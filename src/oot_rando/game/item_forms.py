@@ -21,6 +21,7 @@ Their behaviour is experimental until an in-game pilot confirms it.
 import copy
 from oot_rando.catalog.tokens import FAMILIES
 from oot_rando.catalog.tokens import token_family
+from oot_rando.catalog.traps import is_trap_actor
 
 WORLD_PREFIX = 'Obj_Rando_'
 # The same pickups on a spot under water (``game/underwater.py``): they glow (see GLOW_ACTOR).
@@ -307,6 +308,11 @@ def can_take(canonical, form, ap=(), actor=''):
         return form == 'shop'           # shop-only purchases (bottle contents, refills…)
     if canonical.startswith('Item_AP_'):
         # Another player's item (Archipelago medallion): forms proven for new pouch actors.
+        return form in ('chest', 'world')
+    if is_trap_actor(canonical):
+        # Fake item trap (patching/fake_traps.py): its freeze reads the IsGet flag the
+        # pouch writes on the item's get event, as for the souls: chests and pickups
+        # (world); shops and NPC/cutscene gifts may add the item without that event.
         return form in ('chest', 'world')
     if canonical.startswith('Item_Soul_'):
         # The soul flag is written by the soul's own get event: proven for pickups
