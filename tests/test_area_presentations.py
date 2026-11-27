@@ -33,9 +33,48 @@ class Tables(unittest.TestCase):
             self.assertTrue(visit.startswith('IsVisitLocation.'))
         self.assertIn('HavePlayedEvent.Goto_SpritTemple', values)   # the game's spelling
 
+    def test_premarked_visits_match_the_frames(self):
+        for scene, (_, visit) in ap.PREMARKED.items():
+            if scene in ap.LOCATION_FRAMES:
+                self.assertEqual(visit, 'IsVisitLocation.' + ap.LOCATION_FRAMES[scene])
+
+    def test_scenes_marked_played_mark_their_area_visited(self):
+        # Kaepora's first field arrival marks the Hyrule Field and castle scenes played:
+        # without the visits the map showed "???" for both areas (27/11).
+        from oot_rando.patching.story_fixes import story_start_values
+        from oot_rando.patching import child_castle_skip
+        values = dict(story_start_values(), **ap.start_values(), **child_castle_skip.START_VALUES)
+        visited = ap.with_area_visits(values)
+        self.assertIs(visited['IsVisitLocation.HyruleField'], True)
+        self.assertIs(visited['IsVisitLocation.HyruleCastle'], True)
+        for scene, area in ap.LOCATION_FRAMES.items():
+            if values.get('HavePlayedEvent.' + scene) is True:
+                self.assertIs(visited['IsVisitLocation.' + area], True, scene)
+        self.assertEqual({k: v for k, v in visited.items() if k in values}, values)
+        # Played false, or not set: nothing added.
+        self.assertEqual(ap.with_area_visits({'HavePlayedEvent.Dm_Kakariko_0000': False}),
+                         {'HavePlayedEvent.Dm_Kakariko_0000': False})
+
 
 @unittest.skipUnless(NUP, 'OOT_NUP not set')
 class NativePresentations(unittest.TestCase):
+    def test_location_frames_cover_every_area_name_frame(self):
+        from oot_rando.formats.evfl_tools import parse_flow
+        from evfl.event import ActionEvent
+        found = {}
+        for path in self.members:
+            if not (path.startswith('Event/EventFlow/') and path.endswith('.bfevfl.zs')):
+                continue
+            raw = self.read(path)
+            if b'EventTriggerOpenLocationUI' not in raw:
+                continue
+            names = {e.data.params.data['LocationName'] for e in parse_flow(raw).flowchart.events
+                     if isinstance(e.data, ActionEvent) and e.data.actor_action.v.v == 'EventTriggerOpenLocationUI'}
+            self.assertEqual(len(names), 1, path)
+            found[path[len('Event/EventFlow/'):-len('.bfevfl.zs')]] = \
+                names.pop()[len('Work/Location/'):].split('.')[0]
+        self.assertEqual(found, ap.LOCATION_FRAMES)
+
     @classmethod
     def setUpClass(cls):
         from oot_rando.formats.inspect_nup import Nup

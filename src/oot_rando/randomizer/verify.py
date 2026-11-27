@@ -734,6 +734,14 @@ def verify(nup_path, seed_dir):
                         report['start_values'] = report.get('start_values', 0) + 1
                 if child_castle_skip.enabled((manifest.get('settings') or {}).get('full')):
                     values = dict(values, **child_castle_skip.START_VALUES)
+                area_visits = (skips.get('story_fixes') or {}).get('area_visits')
+                if area_visits:   # (seeds from 0.12.22 on)
+                    from oot_rando.patching.area_presentations import with_area_visits
+                    visited = with_area_visits(values)
+                    if sorted(set(visited) - set(values)) != area_visits:
+                        raise ValueError('Area visits differ from the spoiler.')
+                    values = visited
+                if child_castle_skip.enabled((manifest.get('settings') or {}).get('full')):
                     # The castle quests replayed at the start (native requests, copied).
                     steps = child_castle_skip.start_step_params(
                         lambda p: decompress(nup.read(members[p]), d), door_ready=not stones)
