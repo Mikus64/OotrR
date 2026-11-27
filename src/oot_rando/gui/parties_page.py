@@ -44,6 +44,9 @@ class PartiesPage:
         if enabled:
             if self.party_library is None:
                 self.open_party_library()
+            notice = self.reconcile_longshot_installation()
+            if notice:
+                self.status.set(notice)
             self.restore_party()
         else:
             # The installed seed stays where it is; it is simply no longer managed.
@@ -276,15 +279,34 @@ class PartiesPage:
         except Exception as error:
             self.error(error)
 
+    def party_seed_dir(self, party):
+        """The installed seed of a party, else its stored snapshot (its port folder vanished)."""
+        live_seed = Path(party['mods']) / party['mod_name']
+        if live_seed.is_dir():
+            return live_seed
+        snapshot_seed = self.party_library.bundle(party) / 'seed'
+        if snapshot_seed.is_dir():
+            return snapshot_seed
+        return live_seed
+
     def party_opened(self, party):
         self.party_job_paused = False
+        if not Path(party['mods']).exists():
+            # Its port folder vanished (a Longshot update): follow the new build.
+            resolved = self.resolve_longshot_mods(party['mods'])
+            if resolved:
+                try:
+                    self.party_library.migrate_mods_directory(resolved, old_mods=party['mods'])
+                    party = self.party_library.get(party['id'])
+                except (OSError, ValueError) as error:
+                    self.error(error)
         self.mods.set(party['mods'])
         self.save_path.set('')
         self.auto_save.set(True)
         self.ap_password.set('')
         self.ap_address.set(party.get('ap_address') or 'archipelago.gg:38281')
         self.slot.set('party-' + party['id'])
-        self.use_artifact(Path(party['mods']) / party['mod_name'])
+        self.use_artifact(self.party_seed_dir(party))
         self.start_turbo()
         self.render_parties()
         self.update_home()

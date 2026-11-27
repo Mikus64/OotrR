@@ -28,6 +28,7 @@ from oot_rando.paths import data_dir, seeds_dir, state_dir
 from oot_rando.gui import theme
 from oot_rando.gui.parties_page import PartiesPage
 from oot_rando import __version__ as APP_VERSION, updater
+from oot_rando import pc_port
 
 STATE = state_dir()
 LABELS = dict(zip(POOL, ('Green Rupee', 'Blue Rupee', 'Red Rupee', 'Purple Rupee',
@@ -495,7 +496,10 @@ class Application(PartiesPage):
         def choose():
             value = filedialog.askopenfilename(filetypes=[('NUP game', '*.nup')]) if kind == 'file' else filedialog.askdirectory()
             if value:
-                variable.set(value)
+                if kind == 'directory' and variable is self.mods:
+                    value = self.normalize_chosen_mods_dir(value)
+                if value:
+                    variable.set(value)
         ttk.Button(row, text='Browse…', command=choose).pack(side='right', padx=(8, 0))
 
     def build_setup(self):
@@ -1098,9 +1102,119 @@ class Application(PartiesPage):
         except OSError:
             pass
 
+    def prompt_longshot_channel(self, channels, default_channel=None):
+        """Ask which Longshot channel to use; the chosen channel entry, or None when cancelled."""
+        if not channels:
+            return None
+        dialog = tk.Toplevel(self.root)
+        dialog.title('Choose Longshot channel')
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.configure(background=self.colors['page'])
+        frame = ttk.Frame(dialog, padding=(22, 18), style='Page.TFrame')
+        frame.pack(fill='both', expand=True)
+        ttk.Label(frame, text='Your Longshot folder moved', style='Heading.TLabel').pack(anchor='w')
+        ttk.Label(frame, text='The saved mods folder no longer exists and several Longshot channels are '
+                              'installed. Choose the one to use:',
+                  style='Muted.TLabel', wraplength=460, justify='left').pack(anchor='w', pady=(4, 12))
+        known = any(c['channel'] == default_channel for c in channels)
+        selected = tk.StringVar(value=default_channel if known else channels[0]['channel'])
+        for channel in channels:
+            ttk.Radiobutton(frame, text=f"{channel['label']}  —  {channel['version_name']}",
+                            value=channel['channel'], variable=selected).pack(anchor='w', pady=3)
+            ttk.Label(frame, text='    ' + str(channel['mods_dir']), style='Small.TLabel',
+                      wraplength=460).pack(anchor='w', pady=(0, 6))
+        chosen = []
+
+        def confirm(_event=None):
+            chosen.append(next((c for c in channels if c['channel'] == selected.get()), channels[0]))
+            dialog.destroy()
+
+        buttons = ttk.Frame(frame, style='Page.TFrame')
+        buttons.pack(fill='x', pady=(12, 0))
+        ttk.Button(buttons, text='Cancel', command=dialog.destroy).pack(side='right', padx=(8, 0))
+        ttk.Button(buttons, text='Use this channel', style='Accent.TButton', command=confirm).pack(side='right')
+        dialog.bind('<Return>', confirm)
+        dialog.bind('<Escape>', lambda _event: dialog.destroy())
+        dialog.protocol('WM_DELETE_WINDOW', dialog.destroy)
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - dialog.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - dialog.winfo_height()) // 2)
+        dialog.geometry(f'+{x}+{y}')
+        dialog.grab_set()
+        self.root.wait_window(dialog)
+        return chosen[0] if chosen else None
+
+    def resolve_longshot_mods(self, path):
+        """The mods folder a saved or picked Longshot path stands for now ('' when none was chosen).
+
+        A path which is still a port's mods folder is kept as it is: an older build or another
+        channel is the player's choice. Only a vanished path (or a Longshot root or channel folder
+        picked by hand) is replaced: by the newest build of its only channel, else by the
+        channel the player chooses."""
+        info = pc_port.resolve_longshot_update(path)
+        if info['status'] == 'upgraded':
+            return str(info['recommended']['mods_dir'])
+        if info['status'] == 'choose_channel':
+            chosen = self.prompt_longshot_channel(info['channels'], default_channel=info['current_channel'])
+            return str(chosen['mods_dir']) if chosen is not None else ''
+        return ''
+
+    def normalize_chosen_mods_dir(self, raw_path):
+        """A folder picked with Browse…: a port folder becomes its mods, a Longshot root or channel
+        folder becomes the mods of the build to use; anything else is kept."""
+        folder = pc_port.normalize_port_mods_dir(raw_path)
+        if not folder or Path(folder).name.upper() == TITLE or pc_port.is_port_mods_dir(folder):
+            return folder
+        return self.resolve_longshot_mods(folder) or folder
+
+    def reconcile_longshot_installation(self):
+        """Follow a Longshot update which deleted the saved mods folder. Returns a status notice."""
+        candidates = [self.mods.get().strip()]
+        if self.party_library is not None and self.party_library.active_id:
+            try:
+                candidates.append(self.party_library.get(self.party_library.active_id)['mods'])
+            except (OSError, ValueError, KeyError):
+                pass
+        for source in dict.fromkeys(c for c in candidates if c):
+            info = pc_port.resolve_longshot_update(source)
+            if info['status'] != 'not_longshot':
+                break
+        else:
+            return ''
+        if info['status'] == 'unchanged':
+            # The saved folder is fine; still move parties whose own (older) folder vanished.
+            new_mods = source
+        else:
+            new_mods = self.resolve_longshot_mods(source)
+            if not new_mods:
+                return ''
+        migrated = []
+        notice = ''
+        if self.party_library is not None:
+            try:
+                migrated = self.party_library.migrate_mods_directory(new_mods, old_mods=source, root=info['root'])
+            except (OSError, ValueError) as error:
+                notice = f' My Games not updated: {error}'
+            if migrated:
+                self.render_parties()
+        if new_mods == source:
+            if not migrated:
+                return notice.strip()
+            return f'Longshot: {len(migrated)} game(s) moved to {Path(new_mods).parent.name}.' + notice
+        self.mods.set(new_mods)
+        moved = f' ({len(migrated)} game(s) moved)' if migrated else ''
+        return f'Longshot updated: now using {Path(new_mods).parent.name}{moved}.' + notice
+
     def restore_last_artifact(self):
+        notice = self.reconcile_longshot_installation()
         if self.restore_party():
+            if notice:
+                current = self.status.get()
+                self.status.set(notice + ('  ' + current if current else ''))
             return
+        if notice:
+            self.status.set(notice)
         last = self.app_state.get('last_artifact')
         if not last or self.artifact or not (Path(last) / 'manifest.json').is_file():
             return

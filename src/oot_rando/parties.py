@@ -16,6 +16,7 @@ import threading
 import uuid
 
 from oot_rando.paths import app_dir
+from oot_rando.pc_port import longshot_layout_root
 from oot_rando.randomizer.randomizer_services import read_artifact, validate_mod_directory, is_randomizer_seed
 from oot_rando.tracker.save_patch import GameRunning, running_game
 
@@ -25,6 +26,10 @@ def _write(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
     temporary.replace(path)
+
+
+def _same_path(a, b):
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
 def _plain_tree(path):
@@ -301,6 +306,46 @@ class PartyLibrary:
         _write(self.folder(ident) / 'party.json', party)
 
     @_operation
+    def migrate_mods_directory(self, new_mods, *, old_mods=None, root=None):
+        """Point at ``new_mods`` the games whose mods folder vanished: ``old_mods``, and any other
+        of the same Longshot root (``root``, else the one of ``new_mods``). A folder which still
+        exists is never moved: an older build is the player's choice.
+
+        A Longshot update can delete the version folder a game was installed in. The active game
+        then gets its stored seed installed again in ``new_mods`` (same transaction as a switch),
+        unless another randomizer seed already sits there. Returns the names of the moved games.
+        """
+        target = validate_mod_directory(new_mods)
+        old = Path(os.path.abspath(old_mods)) if old_mods else None
+        if root:
+            root = Path(root).resolve()
+        else:
+            layout = longshot_layout_root(target)
+            root = layout[0].resolve() if layout else None
+        moved = []
+        for party in self.list():
+            mods = Path(os.path.abspath(party['mods']))
+            if mods.exists() or _same_path(mods, target):
+                continue
+            layout = longshot_layout_root(mods) if root is not None else None
+            same_root = layout is not None and layout[0].resolve() == root
+            if not same_root and not (old is not None and _same_path(mods, old)):
+                continue
+            record = self.folder(party['id']) / 'party.json'
+            _write(record, dict(party, mods=str(target)))   # recovery checks this owner
+            if party['id'] == self.active_id:
+                seed = target / party['mod_name']
+                installed = target.is_dir() and any(is_randomizer_seed(p) for p in target.iterdir())
+                if not seed.exists() and not installed:
+                    try:
+                        self._install({seed: self.bundle(party) / 'seed'}, party['id'])
+                    except Exception:
+                        _write(record, party)
+                        raise
+            moved.append(party['name'])
+        return moved
+
+    @_operation
     def delete(self, ident):
         if ident == self.active_id:
             raise ValueError('Activate another party before deleting this one.')
@@ -344,14 +389,25 @@ class PartyLibrary:
         from oot_rando.randomizer.randomizer_services import qol_seed_warning
         if qol_seed_warning(mods):
             raise ValueError('Move OoT_QoL out of this mods folder before activating a randomizer party.')
+        outgoing_mods_missing = bool(outgoing and not Path(outgoing['mods']).exists())
         if outgoing:
-            outgoing = self.refresh(ap_address)
+            if outgoing_mods_missing:
+                # Outgoing port folder was removed (e.g. Longshot version update); archive saves
+                # with the existing party snapshot seed so switching does not fail on missing old mods.
+                if ap_address is not None:
+                    outgoing['ap_address'] = ap_address
+                out_saves = Path(outgoing['saves'])
+                outgoing = self._snapshot(outgoing, self.bundle(outgoing) / 'seed', out_saves if out_saves.is_dir() else None)
+            else:
+                outgoing = self.refresh(ap_address)
         # One transaction can exchange two distinct destinations. Outgoing destinations
         # are emptied only after being archived, so every installed pair has one owner.
         replacements = {}
         if outgoing:
-            replacements[Path(outgoing['mods']) / outgoing['mod_name']] = None
-            replacements[Path(outgoing['saves'])] = None
+            if not outgoing_mods_missing:
+                replacements[Path(outgoing['mods']) / outgoing['mod_name']] = None
+            if Path(outgoing['saves']).exists():
+                replacements[Path(outgoing['saves'])] = None
         replacements[mods / target['mod_name']] = incoming / 'seed'
         replacements[saves] = incoming / 'save'
         paths = list(replacements)
