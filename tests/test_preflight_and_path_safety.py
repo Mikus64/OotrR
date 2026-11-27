@@ -1,5 +1,5 @@
+import _src_path  # noqa: F401
 import json
-import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -19,7 +19,8 @@ from oot_rando.path_safety import (
 import hashlib
 from oot_rando.patching.randomize_kokiri import BUILD, TITLE
 from oot_rando.randomizer.randomizer_core import ADAPTER_VERSION, GENERATOR_VERSION, Settings, settings_identity
-from oot_rando.randomizer.randomizer_services import QOL_FOLDER, QOL_KIND, is_qol_install, preflight_plain_generation
+from oot_rando.randomizer.artifact import QOL_FOLDER, QOL_KIND, is_qol_install
+from oot_rando.randomizer.mods_folder import preflight_plain_generation
 
 
 def _make_fake_seed(root: Path, settings: Settings) -> Path:

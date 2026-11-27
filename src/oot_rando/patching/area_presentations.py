@@ -34,8 +34,8 @@ Always on. Two mechanisms, chosen per presentation from what its first visit doe
 
 Not validated in game.
 """
-from oot_rando.patching.qol_patches import (AREA_PRESENTATIONS, SKIP_FADE_OUT_ACTIONS, _successors,
-                                            add_skip_window, flow_path, skip_action_class)
+from oot_rando.patching.qol_patches import AREA_PRESENTATIONS, SKIP_FADE_OUT_ACTIONS, add_skip_window, flow_path, skip_action_class
+from oot_rando.formats.evfl_tools import next_events, params_by_event, parse_flow
 
 # presentation -> (gating HavePlayedEvent flag, IsVisitLocation flag of its name frame)
 PREMARKED = {
@@ -91,13 +91,12 @@ def auto_skip_presentation(raw, fade_in=True):
     from evfl.container import Container
     from evfl.event import ActionEvent, Event, SubFlowEvent
     from evfl.util import make_index
-    from oot_rando.patching.event_patch import _flow, _snapshot
     windowed, records = add_skip_window(raw, fade_in)
-    flow = _flow(windowed)
+    flow = parse_flow(windowed)
     chart = flow.flowchart
     events = {e.name: e for e in chart.events}
     entries = {e.name: e for e in chart.entry_points}
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
 
     def reachable(starts, stops=()):
         seen, stack, order = set(), list(starts), []
@@ -110,7 +109,7 @@ def auto_skip_presentation(raw, fade_in=True):
             if isinstance(event.data, SubFlowEvent) and not event.data.res_flowchart_name:
                 sub = entries.get(event.data.entry_point_name)
                 stack.append(sub.main_event.v if sub is not None else None)
-            stack.extend(_successors(event))
+            stack.extend(next_events(event))
         return order
 
     roots = lambda: [e.main_event.v for e in chart.entry_points]
@@ -167,8 +166,8 @@ def auto_skip_presentation(raw, fade_in=True):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The presentation auto-skip changed other parameters.')
     checked_entries = {e.name: e for e in checked.flowchart.entry_points}
     checked_events = {e.name: e for e in checked.flowchart.events}
@@ -194,10 +193,10 @@ def add_loading_wait(raw, records):
     from evfl.container import Container
     from evfl.event import ActionEvent, Event
     from evfl.util import make_index, make_rindex
-    from oot_rando.patching.event_patch import _flow, _snapshot, GAMEDATA_ACTOR_PARAMS
-    flow = _flow(raw)
+    from oot_rando.patching.event_patch import GAMEDATA_ACTOR_PARAMS
+    flow = parse_flow(raw)
     chart = flow.flowchart
-    expected = _snapshot(flow)
+    expected = params_by_event(flow)
     actor = next((a for a in chart.actors if a.identifier.name == LOADING_ACTOR
                   and a.identifier.sub_name == ''), None)
     if actor is None:
@@ -231,8 +230,8 @@ def add_loading_wait(raw, records):
     stream = io.BytesIO()
     flow.write(stream)
     result = stream.getvalue()
-    checked = _flow(result)
-    if _snapshot(checked) != expected:
+    checked = parse_flow(result)
+    if params_by_event(checked) != expected:
         raise ValueError('The loading wait changed other parameters.')
     checked_entries = {e.name: e for e in checked.flowchart.entry_points}
     for record in records:

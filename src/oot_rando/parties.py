@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from functools import wraps
 import hashlib
 import json
-import logging
 from pathlib import Path
 import os
 import shutil
@@ -17,17 +16,34 @@ import threading
 import uuid
 
 from oot_rando.paths import app_dir
-from oot_rando.randomizer.randomizer_services import read_artifact, validate_mod_directory, is_randomizer_seed
-from oot_rando.tracker.save_patch import GameRunning, running_game
-
-_LOG = logging.getLogger(__name__)
+from oot_rando.pc_port import longshot_layout_root
+from oot_rando.randomizer.artifact import read_artifact, is_randomizer_seed
+from oot_rando.randomizer.mods_folder import validate_mod_directory
+from oot_rando.randomizer.save_patch import GameRunning, running_game
+from oot_rando.randomizer.mods_folder import conflicting_mods
+from oot_rando.randomizer.mods_folder import qol_seed_warning
 
 
 def _write(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix('.tmp')
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding='utf-8')
+    with temporary.open('w', encoding='utf-8') as handle:
+        handle.write(json.dumps(value, ensure_ascii=False, indent=2))
+        handle.flush()
+        # library.json is the commit point of every transaction: after a power cut it
+        # must hold either the old or the new content, never an empty file.
+        os.fsync(handle.fileno())
     temporary.replace(path)
+    if os.name != 'nt':
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+
+
+def _same_path(a, b):
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
 def _plain_tree(path):
@@ -48,7 +64,7 @@ def _plain_tree(path):
                 raise ValueError('Linked files cannot be used for parties: ' + str(entry))
 
 
-def _copy(source, destination):
+def copy_verified(source, destination):
     from oot_rando.path_safety import fs_path, validate_file_path
     _plain_tree(source)
     shutil.copytree(fs_path(source), fs_path(destination))
@@ -125,6 +141,7 @@ class PartyLibrary:
         self.journal = self.root / 'transaction.json'
         self._mutex = threading.RLock()
         self._lock_depth = 0
+        self.unreadable = []        # (folder, error) of the parties ``list`` could not read
         self.root.mkdir(parents=True, exist_ok=True)
         self.recover()
 
@@ -132,7 +149,7 @@ class PartyLibrary:
         if not self.index_path.exists():
             return {'version': 1, 'active': None}
         value = json.loads(self.index_path.read_text(encoding='utf-8'))
-        if value.get('version') != 1:
+        if not isinstance(value, dict) or value.get('version') != 1:
             raise ValueError('Unsupported party library.')
         return value
 
@@ -147,21 +164,24 @@ class PartyLibrary:
 
     def get(self, ident):
         value = json.loads((self.folder(ident) / 'party.json').read_text(encoding='utf-8'))
-        if value.get('id') != ident:
+        if not isinstance(value, dict) or value.get('id') != ident:
             raise ValueError('Inconsistent party metadata.')
         if value.get('mod_name') != 'OoT_Randomizer_' + value.get('seed_id', '')[:16]:
             raise ValueError('Invalid party mod folder.')
         return value
 
     def list(self):
-        entries = []
-        for child in self.root.iterdir():
-            if child.is_dir() and (child / 'party.json').is_file():
+        """Readable parties, the active one first. A damaged ``party.json`` is left out
+        (and named in ``unreadable``) instead of blocking every other party."""
+        parties, self.unreadable = [], []
+        for path in self.root.iterdir():
+            if path.is_dir() and (path / 'party.json').is_file():
                 try:
-                    entries.append(self.get(child.name))
-                except Exception as exc:
-                    _LOG.debug("Skipping invalid party folder %s: %s", child.name, exc, exc_info=True)
-        return sorted(entries, key=lambda p: (p['id'] != self.active_id, p['name'].casefold()))
+                    parties.append(self.get(path.name))
+                except (OSError, ValueError) as error:   # JSONDecodeError is a ValueError
+                    self.unreadable.append((path.name, str(error)))
+        active = self.active_id
+        return sorted(parties, key=lambda p: (p['id'] != active, p['name'].casefold()))
 
     def bundle(self, party):
         revision = party['revision']
@@ -200,7 +220,6 @@ class PartyLibrary:
     def preflight_generation(self, name, mods, saves, settings, *, continuing=False):
         "Run every party creation & activation sanity check BEFORE generating a seed."
         from oot_rando.randomizer.randomizer_core import Settings, settings_identity
-        from oot_rando.randomizer.randomizer_services import qol_seed_warning
         self._closed()
         self._name(name)
         mods, saves = self._targets(mods, saves)
@@ -265,10 +284,10 @@ class PartyLibrary:
         destination = self.folder(party['id']) / 'snapshots' / revision
         destination.mkdir(parents=True)
         try:
-            _copy(Path(seed), destination / 'seed')
+            copy_verified(Path(seed), destination / 'seed')
             manifest, _ = read_artifact(destination / 'seed')
             if saves is not None and Path(saves).exists():
-                _copy(Path(saves), destination / 'save')
+                copy_verified(Path(saves), destination / 'save')
             else:
                 (destination / 'save').mkdir()
             _write(destination / 'snapshot.json', {'version': 1, 'saves': _hashes(destination / 'save')})
@@ -318,7 +337,7 @@ class PartyLibrary:
             if installed != [seed]:
                 raise ValueError('Keep exactly one randomizer seed in this mods folder before adopting it.')
             if manifest.get('tracking'):
-                from oot_rando.tracker.save_reader import load_snapshot
+                from oot_rando.formats.save_file import load_snapshot
                 tracking = json.loads((seed / 'tracking.json').read_text(encoding='utf-8'))
                 marker = int(tracking['seed_marker'])
                 for path in saves.glob('slot_*/progress.sav'):
@@ -375,51 +394,45 @@ class PartyLibrary:
         party['ap_address'] = address.strip()
         _write(self.folder(ident) / 'party.json', party)
 
-
     @_operation
-    def migrate_mods_directory(self, new_mods, *, old_mods=None, root=None, restore_active_seed=True):
-        """Rewrite parties pointing at an old/missing Longshot version to ``new_mods``."""
-        from oot_rando.pc_port import longshot_layout_root
+    def migrate_mods_directory(self, new_mods, *, old_mods=None, root=None):
+        """Point at ``new_mods`` the games whose mods folder vanished: ``old_mods``, and any other
+        of the same Longshot root (``root``, else the one of ``new_mods``). A folder which still
+        exists is never moved: an older build is the player's choice.
 
-        target_mods = validate_mod_directory(new_mods)
-        target_norm = os.path.normcase(os.path.abspath(str(target_mods)))
-        old_norm = os.path.normcase(os.path.abspath(str(old_mods))) if old_mods else ""
-        target_root = None
+        A Longshot update can delete the version folder a game was installed in. The active game
+        then gets its stored seed installed again in ``new_mods`` (same transaction as a switch),
+        unless another randomizer seed already sits there. Returns the names of the moved games.
+        """
+        target = validate_mod_directory(new_mods)
+        old = Path(os.path.abspath(old_mods)) if old_mods else None
         if root:
-            target_root = Path(root).resolve()
+            root = Path(root).resolve()
         else:
-            lay = longshot_layout_root(target_mods)
-            if lay is not None:
-                target_root = lay[0].resolve()
-
-        migrated = []
-        active_id = self.active_id
+            layout = longshot_layout_root(target)
+            root = layout[0].resolve() if layout else None
+        moved = []
         for party in self.list():
-            p_mods = os.path.abspath(str(party["mods"]))
-            p_norm = os.path.normcase(p_mods)
-            if p_norm == target_norm:
+            mods = Path(os.path.abspath(party['mods']))
+            if mods.exists() or _same_path(mods, target):
                 continue
-            should_migrate = bool(old_norm and p_norm == old_norm)
-            if not should_migrate and target_root is not None:
-                p_lay = longshot_layout_root(p_mods)
-                if p_lay is not None and p_lay[0].resolve() == target_root and not Path(p_mods).exists():
-                    should_migrate = True
-            if not should_migrate:
+            layout = longshot_layout_root(mods) if root is not None else None
+            same_root = layout is not None and layout[0].resolve() == root
+            if not same_root and not (old is not None and _same_path(mods, old)):
                 continue
-            updated = dict(party, mods=str(target_mods))
-            _write(self.folder(party["id"]) / "party.json", updated)
-            migrated.append(party["name"])
-            if restore_active_seed and party["id"] == active_id:
-                live_seed = target_mods / party["mod_name"]
-                snap_seed = self.bundle(updated) / "seed"
-                has_other_seed = target_mods.is_dir() and any(
-                    is_randomizer_seed(p) for p in target_mods.iterdir()
-                )
-                has_merged = (target_mods / "Merged_Zelda_Rando").is_dir()
-                if snap_seed.is_dir() and not live_seed.exists() and not has_other_seed and not has_merged:
-                    target_mods.mkdir(parents=True, exist_ok=True)
-                    _copy(snap_seed, live_seed)
-        return migrated
+            record = self.folder(party['id']) / 'party.json'
+            _write(record, dict(party, mods=str(target)))   # recovery checks this owner
+            if party['id'] == self.active_id:
+                seed = target / party['mod_name']
+                installed = target.is_dir() and any(is_randomizer_seed(p) for p in target.iterdir())
+                if not seed.exists() and not installed:
+                    try:
+                        self._install({seed: self.bundle(party) / 'seed'}, party['id'])
+                    except Exception:
+                        _write(record, party)
+                        raise
+            moved.append(party['name'])
+        return moved
 
     @_operation
     def delete(self, ident):
@@ -457,12 +470,10 @@ class PartyLibrary:
         if saves.exists() and any(saves.iterdir()) and not owns_save:
             raise ValueError('This destination already contains saves. Preserve its installed game first '
                              'or choose an empty save account folder.')
-        from oot_rando.randomizer.randomizer_services import conflicting_mods
         conflicts = conflicting_mods(mods, manifest,
                                      outgoing['mod_name'] if outgoing and Path(outgoing['mods']) == mods else '') if mods.exists() else []
         if conflicts:
             raise ValueError('Conflicting mods: ' + ', '.join(conflicts))
-        from oot_rando.randomizer.randomizer_services import qol_seed_warning
         if qol_seed_warning(mods):
             raise ValueError('Move OoT_QoL out of this mods folder before activating a randomizer party.')
         outgoing_mods_missing = bool(outgoing and not Path(outgoing['mods']).exists())
@@ -512,7 +523,7 @@ class PartyLibrary:
             _write(self.journal, journal)
             for op, source in zip(operations, replacements.values()):
                 if source is not None:
-                    _copy(source, Path(op['stage']))
+                    copy_verified(source, Path(op['stage']))
                     op['prepared'] = True
                     _write(self.journal, journal)
             self._closed()

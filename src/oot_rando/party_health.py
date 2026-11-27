@@ -1,12 +1,11 @@
 """Seed/party health diagnostics and non-destructive preflight checks for mods/ operations."""
-import json
 import logging
 import os
 from pathlib import Path
 import shutil
 import uuid
 
-from oot_rando.randomizer.randomizer_services import read_artifact
+from oot_rando.randomizer.artifact import read_artifact
 
 _LOG = logging.getLogger(__name__)
 

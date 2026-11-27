@@ -33,6 +33,48 @@ from oot_rando.game.world_maps import SAFE_CATEGORIES, build_world, effective_me
 from oot_rando.game.resource_allocations import allocation, grow_resources, add_resources
 from oot_rando.formats.byml_writer import lift_actors, patch_strings
 from oot_rando.logic import rando_options
+from oot_rando.archipelago.bridge import check_patch
+from oot_rando.formats import byml_codec
+from oot_rando.game.extra_sources import event_paths
+from oot_rando.game.extra_sources import scan_world
+from oot_rando.game.item_forms import add_rsdb_rows
+from oot_rando.game.item_forms import build_pack
+from oot_rando.game.item_forms import canonical_of
+from oot_rando.game.item_forms import derived_actors
+from oot_rando.game.item_forms import ground_lift
+from oot_rando.game.item_forms import is_derived
+from oot_rando.game.item_forms import world_scale
+from oot_rando.game.tracking_metadata import GAMEDATA
+from oot_rando.game.tracking_metadata import add_saved_flags
+from oot_rando.logic.world import World
+from oot_rando.patching import adult_start
+from oot_rando.patching import fire_arrows
+from oot_rando.patching import song_models
+from oot_rando.patching import special_item_shuffle
+from oot_rando.patching.ap_mailbox import key_items as _mailbox_key_items
+from oot_rando.patching.ap_mailbox import records
+from oot_rando.patching.event_info import flow_name
+from oot_rando.patching.event_info import flow_path
+from oot_rando.patching.event_patch import add_collection_markers
+from oot_rando.patching.event_patch import patch_event_params
+from oot_rando.patching.key_adapter import is_key_actor as _is_key_actor
+from oot_rando.patching.master_sword_item import MASTER_SWORD_ACTOR
+from oot_rando.patching.progressive import add_converter_calls
+from oot_rando.patching.progressive import hook_sites
+from oot_rando.patching.progressive import is_token
+from oot_rando.patching.qol_patches import GIFT_AFTER_CUTSCENE
+from oot_rando.patching.qol_patches import SARIA_GIFT_FLOW
+from oot_rando.patching.qol_patches import bypass_cutscene_gift
+from oot_rando.patching.qol_patches import give_gift_after
+from oot_rando.patching.qol_patches import saria_add_before_display
+from oot_rando.patching.repeatable_adapter import limit_shop_stock
+from oot_rando.patching.repeatable_adapter import shop_stock_edits
+from oot_rando.patching.song_adapter import patch_flow as patch_song_flow
+from oot_rando.patching.song_adapter import plan_song_flows
+from oot_rando.patching.song_adapter import site_kind
+from oot_rando.patching.soul_adapter import RSDB_FILES
+from oot_rando.patching.soul_adapter import build_soul_files
+from oot_rando.patching.soul_adapter import presence_changes
 
 GENERATOR_VERSION = '0.12.18'  # Include the Treasure Chest Game first prize
 ADAPTER_VERSION = 'ap-glitchless-v5'   # v5: progressive tokens (every copy gives the next level)
@@ -46,7 +88,6 @@ def ap_records(settings):
     """Reception records of an Archipelago seed (items of this game found in other worlds)."""
     if settings.archipelago is None or not settings.archipelago.get('remote'):
         return []
-    from oot_rando.patching.ap_mailbox import records
     return records(settings.archipelago['remote'])
 
 
@@ -58,7 +99,6 @@ def starting_pouch_items(full):
     """
     full = full or {}
     starting = (full.get('archipelago') or {}).get('starting') if full.get('archipelago') else full.get('starting')
-    from oot_rando.patching import adult_start
     options = full.get('options')
     # With the Master Sword shuffled, it is a find like any other: not given at start.
     held = (adult_start.START_ACTORS
@@ -108,7 +148,14 @@ class Settings:
     # Archipelago patch (``.aprmk`` content): the placements come from a multiworld.
     archipelago: dict | None = None
 
+    def __post_init__(self):
+        # Complete-mode options are normalized once, when the settings are made (defaults
+        # filled in, lists in canonical order): validate() and to_dict() only read them.
+        if isinstance(self.full, dict):
+            self.full = rando_options.validate(self.full)
+
     def validate(self):
+        """Raise ValueError unless the settings are consistent; returns ``self`` unchanged."""
         if not isinstance(self.seed, str) or not self.seed.strip() or len(self.seed) > 256:
             raise ValueError('The seed must be a non-empty text of at most 256 characters.')
         for name in ('randomize_chests', 'avoid_vanilla', 'open_forest') + OPTIONAL_SKIPS:
@@ -124,14 +171,14 @@ class Settings:
                 or any(type(v) is not bool for v in self.categories.values())):
             raise ValueError('Unknown categories or non-boolean values.')
         if self.full is not None:
-            self.full = rando_options.validate(self.full)
+            full = rando_options.validate(self.full)
             if self.randomize_chests or self.categories.get('world_chests'):
                 raise ValueError('The full randomizer handles every chest: disable the four Kokiri '
                                  'chests and the Ordinary chests category.')
             overlap = [CATEGORIES[name] for name, option, off in (
                 ('pots', 'shuffle_pots', 'off'), ('bushes', 'shuffle_bushes', False), ('rocks', 'shuffle_rocks', False),
                 ('trees', 'shuffle_trees', False))
-                if self.categories.get(name) and self.full.get(option, off) != off]
+                if self.categories.get(name) and full.get(option, off) != off]
             if overlap:
                 raise ValueError('These categories are already shuffled as checks by the full randomizer: '
                                  + ', '.join(overlap) + '. Untick the matching cosmetic category.')
@@ -167,14 +214,28 @@ class Settings:
         return self
 
     def to_dict(self):
+        """The recorded form of the settings: the manifest stores it and the seed identity
+        (:func:`settings_identity`) hashes it, so its shape is frozen (tests/test_seed_identity.py).
+
+        Omitted to keep the identity of earlier seeds: ``full`` and ``archipelago`` while
+        unset, the ``OPTIONAL_SKIPS`` while false, and the complete-mode options that
+        ``rando_options.recorded`` leaves out. Lists are sorted. Never changes ``self``."""
         self.validate()
-        # ``full`` is omitted when unset so that earlier seeds keep their identity.
-        return {f.name: (sorted(getattr(self, f.name)) if f.name in ('pool', 'excluded_checks')
-                        else {name: self.categories.get(name, False) for name in sorted(CATEGORIES)}
-                        if f.name == 'categories' else dict(sorted(rando_options.recorded(self.full).items()))
-                        if f.name == 'full' else getattr(self, f.name))
-                for f in fields(self) if not (f.name in ('full', 'archipelago') and getattr(self, f.name) is None)
-                and not (f.name in OPTIONAL_SKIPS and not getattr(self, f.name))}
+        recorded = {}
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if f.name in ('full', 'archipelago') and value is None:
+                continue
+            if f.name in OPTIONAL_SKIPS and not value:
+                continue
+            if f.name in ('pool', 'excluded_checks'):
+                value = sorted(value)
+            elif f.name == 'categories':
+                value = {name: value.get(name, False) for name in sorted(CATEGORIES)}
+            elif f.name == 'full':
+                value = dict(sorted(rando_options.recorded(rando_options.validate(value)).items()))
+            recorded[f.name] = value
+        return recorded
 
     @classmethod
     def from_dict(cls, value):
@@ -197,6 +258,21 @@ class Settings:
             value['full'] = dict(value['full'])
             value['full'].setdefault('spiritual_stones', rando_options.UNRECORDED['spiritual_stones'])
         return cls(**value).validate()
+
+
+def settings_from_patch(patch, skulltulas_always_present=False):
+    """Application settings that build the mod of this patch (full randomizer only, skips on).
+
+    ``skulltulas_always_present`` only changes this game (no placement): a local choice.
+    """
+    check_patch(patch)
+    options = dict(patch['options'])
+    options.setdefault('spiritual_stones', rando_options.UNRECORDED['spiritual_stones'])
+    seed = f'AP {patch.get("seed_name", "")} {patch.get("slot_name", "")}'.strip()[:256]
+    return Settings(seed=seed, randomize_chests=False, open_forest=bool(patch['open_forest']),
+                    categories=dict.fromkeys(CATEGORIES, False), full=options,
+                    archipelago=patch, skulltulas_always_present=bool(skulltulas_always_present),
+                    **dict.fromkeys(SKIP_OPTIONS, True)).validate()
 
 
 def _canonical(value):
@@ -314,7 +390,8 @@ def grow_resource_table(files, growths, new_sizes, read, d):
 
 
 def publish_mod(output, files, documents, finish=None):
-    "Write a mod folder atomically: romfs/<path> for files, then documents, then finish(staging)."
+    """Write a mod folder atomically: ``romfs/<path>`` for ``files``, then ``documents``
+    (name to bytes or text), then whatever ``finish(staging)`` adds. ``output`` must not exist."""
     import os
     from oot_rando.path_safety import fs_path, validate_file_path
     output = Path(output)
@@ -352,7 +429,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
     ``save_seed_id``: an earlier seed of the same Archipelago slot whose saves this one
     continues (its save marker is kept); by default the seed binds its own saves.
     ``saves_from``: oldest application version these saves may come from, when the seed
-    replaces an older one (tracker/save_patch.py, ``saves_from``)."""
+    replaces an older one (randomizer/save_patch.py, ``saves_from``)."""
     from oot_rando.path_safety import validate_path_headroom
     settings.validate_supported()
     output = Path(output)
@@ -888,7 +965,8 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
                     'title_id': TITLE, 'build_id': BUILD, 'settings': settings.to_dict(),
                     'scope': 'Four Kokiri chests, ordinary chests, explicit drops of the selected pots, bushes and rocks, and QoL. Progression and ambiguous sources kept.',
                     'files': {p: {'size': len(v), 'sha256': sha256(v)} for p, v in sorted(files.items())},
-                    'source_files': sources, 'resource_allocations': allocations,
+                    # Sorted: the read order follows set iterations (not stable across processes).
+                    'source_files': dict(sorted(sources.items())), 'resource_allocations': allocations,
                     'coverage': world['coverage'], 'skips': skips, 'progression_randomized': full is not None,
                     'complete_randomizer': False,
                     'validation': 'Static checks done; this composed seed is still to be tested in game.'}
@@ -897,7 +975,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
         if saves_from:
             manifest['saves_from'] = str(saves_from)
         if start_values:
-            # Values a game started before a fix never received (tracker/save_patch.py).
+            # Values a game started before a fix never received (randomizer/save_patch.py).
             manifest['start_values'] = dict(sorted(start_values.items()))
         if full is not None:
             families = sorted({p['source'] for p in full['placements']})
@@ -974,13 +1052,7 @@ def generate(nup_path, output, settings, progress=None, save_seed_id=None, saves
 def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, report):
     """Plan and compose the complete randomizer. Returns (plan, modified, new)."""
     from collections import defaultdict
-    from oot_rando.logic.world import World
-    from oot_rando.formats import byml_codec
     from oot_rando.randomizer import full_randomizer
-    from oot_rando.game.extra_sources import scan_world
-    from oot_rando.game.item_forms import add_rsdb_rows, build_pack, derived_actors, is_derived
-    from oot_rando.patching.soul_adapter import build_soul_files, presence_changes, RSDB_FILES
-    from oot_rando.patching.event_patch import patch_event_params
 
     report('Reading the remake logic…')
     data = World()
@@ -988,7 +1060,8 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
     if settings.archipelago is not None:
         from oot_rando.archipelago import bridge
         patch = settings.archipelago
-        if patch['game_build'] != BUILD or patch['world'] != data.fingerprint()                 or patch['scan'] != bridge.scan_fingerprint(groups, enemies, extra):
+        if (patch['game_build'] != BUILD or patch['world'] != data.fingerprint()
+                or patch['scan'] != bridge.scan_fingerprint(groups, enemies, extra)):
             raise ValueError('This Archipelago patch was generated with an apworld built from another game '
                              'or another version of the application: rebuild the apworld and generate again.')
         report('Applying the Archipelago placements…')
@@ -1015,7 +1088,6 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
                 row['reward_actor'] = row['actor']
                 row['actor'] = record['actor']
     changes, event_changes, lifts = defaultdict(list), defaultdict(list), defaultdict(dict)
-    from oot_rando.game.item_forms import ground_lift, world_scale
     # Unshuffled sources of a fixed progressive level give a token too (full_randomizer.native_sources).
     natives = plan['progressive']['natives']
     for placement in plan['placements'] + natives:
@@ -1046,9 +1118,6 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
                                             {path: maps[path]['root'] for path in maps}).items():
         changes[resource].extend(edits)
     actors = {p['after'] for p in plan['placements'] + natives} - {p['before'] for p in plan['placements']}
-    from oot_rando.patching.key_adapter import is_key_actor as _is_key_actor
-    from oot_rando.patching.progressive import is_token
-    from oot_rando.patching.master_sword_item import MASTER_SWORD_ACTOR
     for actor in sorted(actors):
         if (actor.startswith(('Item_Soul_', 'Item_AP_')) or is_derived(actor) or actor in repeatable_actors
                 or _is_key_actor(actor) or is_token(actor)
@@ -1088,14 +1157,12 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
     # Dungeon-specific keys (key rings, boss keys found outside their dungeon).
     from oot_rando.patching.key_adapter import (build_key_files, check_dungeon_data, check_got_flags, is_key_actor,
                                                key_records)
-    from oot_rando.game.item_forms import canonical_of
     def _reward(placement):   # repeatable pickups keep their reward actor apart
         actor = placement.get('reward_actor', placement['after'])
         return canonical_of(actor) if is_derived(actor) else actor
 
     key_items = {p['item'] for p in plan['placements'] if is_key_actor(_reward(p))}
     # Received from other worlds too: the mailbox hands over the same actors.
-    from oot_rando.patching.ap_mailbox import key_items as _mailbox_key_items
     key_items = sorted(key_items | set(_mailbox_key_items(ap_records(settings))))
     plan['key_items'] = key_records(key_items)
     if plan['key_items']:
@@ -1143,7 +1210,6 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         report('Event: ' + resource.split('/')[-1])
         modified[resource] = patch_event_params(decompress(read(resource), dictionaries_), edits)
     # Fire Arrows shuffled: the sun-shot cutscene binds the pickup now in their place.
-    from oot_rando.patching import fire_arrows
     fire_actor = fire_arrows.placed_actor(plan['placements'])
     if fire_actor:
         flow = fire_arrows.CUTSCENE_FLOW
@@ -1151,12 +1217,9 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         modified[flow] = fire_arrows.retarget_cutscene(
             raw if raw is not None else decompress(read(flow), dictionaries_), fire_actor)
         plan['fire_arrow_cutscene'] = {'flow': flow, 'actor': fire_actor}
-    from oot_rando.patching.qol_patches import SARIA_GIFT_FLOW, saria_add_before_display
     if SARIA_GIFT_FLOW in event_changes:
         # Saria's gift is in the pouch before its get window (and ActionGuide) runs.
         modified[SARIA_GIFT_FLOW], _ = saria_add_before_display(modified[SARIA_GIFT_FLOW])
-    from oot_rando.patching.event_patch import add_collection_markers
-    from oot_rando.game.tracking_metadata import GAMEDATA, add_saved_flags
     markers, saved_flags = defaultdict(dict), {}
     shuffled_ids = {p['id'] for p in plan['placements']}
     for gid, entry in sorted(plan['matches'].items()):
@@ -1186,8 +1249,6 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         modified[resource], plan['collection_markers'][resource] = add_collection_markers(raw, events)
     # Songs: text-only gets, song cutscenes without their melody teaching, windmill
     # trigger on the check's own flag (patching/song_adapter.py).
-    from oot_rando.game.extra_sources import event_paths
-    from oot_rando.patching.song_adapter import patch_flow as patch_song_flow, plan_song_flows, site_kind
     song_inputs = [{'source': p['source'], 'ap': p['ap_locations'], 'before': p['before'], 'after': p['after'],
                     'variants': [{'resource': x['resource'], 'event': x['event']} for x in p['patches']
                                  if 'event' in x and 'after' not in x]}
@@ -1211,7 +1272,6 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         modified[TEACHING_FLOW_PATH] = add_teaching_entries(decompress(read(TEACHING_FLOW_PATH), dictionaries_))
     # Cutscene gifts: the shuffled item is given (and shown in Link's hands) once back
     # in game, after the cutscene (pilot flows only).
-    from oot_rando.patching.qol_patches import GIFT_AFTER_CUTSCENE, bypass_cutscene_gift, give_gift_after
     plan['gift_get'] = {}
     for resource, spec in sorted(GIFT_AFTER_CUTSCENE.items()):
         if resource not in event_changes:
@@ -1225,8 +1285,6 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         plan['gift_get'][resource] = {'event': spec['event'], 'actor': bypass['actor'], 'flag': bypass['flag'],
                                       'flow': target, 'after': spec['after'], 'call': given['call']}
     # Token gifts whose flow never reaches an item get convert their token themselves.
-    from oot_rando.patching.event_info import flow_name, flow_path
-    from oot_rando.patching.progressive import add_converter_calls, hook_sites
 
     def current_flow(name):
         path = flow_path(name)
@@ -1246,14 +1304,12 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
             raw = decompress(read(GAMEDATA), dictionaries_)
         modified[GAMEDATA] = add_saved_flags(raw, saved_flags)
     # Shuffled shelves are sold once by the shop itself: the slot stays selectable.
-    from oot_rando.patching.repeatable_adapter import limit_shop_stock, shop_stock_edits
     for seller, slots in sorted(shop_stock_edits(repeatables, maps).items()):
         path = 'Pack/Actor/' + seller + '.pack.zs'
         if path in modified or path in new:
             raise ValueError('Shopkeeper pack already modified: ' + seller)
         modified[path], _ = limit_shop_stock(decompress(read(path), dictionaries_), slots)
     # Songs in chests or as pickups: drawn as Sheik's harp in their colour (patching/song_models.py).
-    from oot_rando.patching import song_models
     harp_songs = sorted({_reward(p) for p in plan['placements']
                          if p['form'] in ('chest', 'world') and _reward(p) in song_models.SONG_COLOURS})
     plan['song_models'] = {song: song_models.project_of(song) for song in harp_songs}
@@ -1301,7 +1357,6 @@ def _build_full(nup, dictionaries_, members, settings, raw_maps, sources, read, 
         if raw is None:
             raw = decompress(read(GAMEDATA), dictionaries_)
         modified[GAMEDATA], plan['repeatable_flags'] = register_repeatable_flags(raw, repeatables)
-    from oot_rando.patching import special_item_shuffle
     plan['master_sword_flows'] = {}
     for path in special_item_shuffle.flow_paths(settings.full, members):
         raw = modified.get(path)

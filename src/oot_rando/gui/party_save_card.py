@@ -10,7 +10,7 @@ import tkinter as tk
 from oot_rando.paths import resource, state_dir
 from oot_rando.tracker.auto_tracker import TrackerSession
 from oot_rando.tracker import game_overlay
-from oot_rando.tracker.save_reader import load_snapshot
+from oot_rando.formats.save_file import load_snapshot
 
 _SAVE_SUMMARY_CACHE = {}
 
@@ -721,7 +721,7 @@ def render_party_save_card(parent, summary, colors, icon_dir=None):
         if q_img is not None:
             canvas.create_image(qx + 15, qy + q_h // 2, image=q_img)
             txt_x = qx + 29
-        lbl = f"{q["label"]} {lvl}/{q.get("max", 1)}" if q.get("max", 1) > 1 else q["label"]
+        lbl = f"{q['label']} {lvl}/{q.get('max', 1)}" if q.get("max", 1) > 1 else q["label"]
         canvas.create_text(txt_x, qy + q_h // 2, text=lbl, anchor="w", fill=q_col, font=("TkDefaultFont", 7, "bold" if owned else "normal"))
 
     return canvas

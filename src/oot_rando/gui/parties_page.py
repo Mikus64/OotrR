@@ -1,25 +1,25 @@
 """Named-party library page and its integration with the desktop application."""
 import json
 from datetime import datetime
-import os
 from pathlib import Path
 import logging
 import secrets
-import shutil
 import tempfile
-import uuid
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
 from oot_rando import native_dialogs as filedialog
 
 from oot_rando.parties import PartyLibrary, validate_save_root
-from oot_rando.randomizer.randomizer_services import is_randomizer_seed, validate_mod_directory, read_artifact
+from oot_rando.randomizer.artifact import is_randomizer_seed, read_artifact
+from oot_rando.randomizer.mods_folder import validate_mod_directory
+from oot_rando.gui import theme
 from oot_rando.gui.generation_worker import generate_isolated
-from oot_rando.paths import data_dir, open_in_file_manager
+from oot_rando.native_dialogs import open_in_file_manager
+from oot_rando.paths import data_dir
+from oot_rando.patching.randomize_kokiri import TITLE
 
 _LOG = logging.getLogger(__name__)
-from oot_rando.patching.randomize_kokiri import TITLE
 
 
 class PartiesPage:
@@ -30,7 +30,7 @@ class PartiesPage:
         self.party_search = tk.StringVar()
         self.party_library = None
         self.party_library_error = ''
-        # Opt-in: off unless the player ticked the box on the My Games page.
+        # Opt-in: off unless the player turned it on in Setup (the menu entry appears then).
         self.parties_enabled = tk.BooleanVar(value=self.app_state.get('parties_enabled') is True)
         if self.parties_enabled.get():
             self.open_party_library()
@@ -48,11 +48,13 @@ class PartiesPage:
     def toggle_parties(self):
         enabled = self.parties_enabled.get()
         self.write_app_state(parties_enabled=enabled)
+        self.sidebar.set_visible('parties', enabled)
         if enabled:
             if self.party_library is None:
                 self.open_party_library()
-            if hasattr(self, "_reconcile_longshot_installation"):
-                self._reconcile_longshot_installation()
+            notice = self.reconcile_longshot_installation()
+            if notice:
+                self.status.set(notice)
             self.restore_party()
         else:
             # The installed seed stays where it is; it is simply no longer managed.
@@ -62,6 +64,8 @@ class PartiesPage:
             if self.artifact:
                 self.seed_chip.set('Seed  ' + self.seed_name)
             self.update_home()
+            if self.current_page == 'parties':
+                self.show_page('setup')
         self.sync_parties_page()
 
     def sync_parties_page(self):
@@ -81,12 +85,6 @@ class PartiesPage:
 
     def build_parties(self):
         parent = self.scrollable(self.parties_tab)
-        optin = self.card(parent, 'Keep each adventure with its save',
-                          'Optional and off by default. When on, every generated seed is kept with its '
-                          'own save in a named game that you can switch between. When off, seeds are '
-                          'installed directly in the mods folder as before.')
-        ttk.Checkbutton(optin, text='Enable My Games', variable=self.parties_enabled,
-                        command=self.toggle_parties).pack(anchor='w', pady=(8, 0))
         actions = self.parties_actions = ttk.Frame(parent, style='Page.TFrame')
         ttk.Button(actions, text='+ New party', style='Accent.TButton',
                    command=self.new_party).pack(side='left')
@@ -94,8 +92,7 @@ class PartiesPage:
         ttk.Button(actions, text='Keep the installed party…',
                    command=self.capture_party).pack(side='left')
         search = self.parties_search = ttk.Frame(parent, style='Page.TFrame')
-        ttk.Label(search, text='Search by name', style='Page.TLabel').pack(side='left', padx=(0, 12))
-        ttk.Entry(search, textvariable=self.party_search).pack(side='left', fill='x', expand=True)
+        theme.search_entry(search, self.party_search, 'Search a game by name…').pack(side='left', fill='x', expand=True)
         self.parties_rows = ttk.Frame(parent, style='Page.TFrame')
         self.parties_rows.pack(fill='both', expand=True)
         self.party_search.trace_add('write', lambda *args: self.render_parties())
@@ -110,7 +107,7 @@ class PartiesPage:
         if not self.parties_enabled.get():
             raise ValueError('Enable My Games first.')
         if self.busy:
-            self.status.set('An operation is already running.')
+            self.notify('An operation is already running.')
             return False
         if self.party_library is None:
             raise ValueError('Library unavailable: ' + self.party_library_error
@@ -124,6 +121,10 @@ class PartiesPage:
             child.destroy()
         if not self.parties_enabled.get():
             return
+        if self.party_library is None:
+            # Opening may have failed only because the game was still running while an
+            # interrupted transaction waited for recovery: try again on every refresh.
+            self.open_party_library()
         try:
             if self.party_library is None:
                 raise ValueError(self.party_library_error)
@@ -136,6 +137,10 @@ class PartiesPage:
                           'Create a party, import a seed or keep the one already installed.'
                           if not parties else 'Try another name.')
             self._ensure_party_icons()
+            for folder, error in self.party_library.unreadable:
+                self.card(self.parties_rows, 'Unreadable party',
+                          f'Parties/{folder}/party.json could not be read ({error}). '
+                          'The other parties still work; restore that file or move the folder away.')
             for party in shown:
                 ident = party['id']
                 active = ident == self.party_library.active_id
@@ -297,10 +302,10 @@ class PartiesPage:
 
     def ensure_party_destination(self, mods):
         if not self.party_library.active_id and mods.exists() and any(is_randomizer_seed(p) for p in mods.iterdir()):
-            messagebox.showinfo('Keep your party',
-                'First keep the installed party, with its name and its save. '
-                'You can then create or import another party.', parent=self.root)
             self.show_page('parties')
+            self.show_notice('info', 'First keep the installed party',
+                             'Keep it with its name and its save; you can then create or import another party.',
+                             [('Keep the installed party…', self.capture_party)])
             return False
         return True
 
@@ -328,7 +333,7 @@ class PartiesPage:
             def done(party):
                 self.render_parties()
                 self.show_page('parties')
-                self.status.set('Party imported. Click Activate to play.')
+                self.notify('Party imported. Click Activate to play.')
             self.run_job(job, done)
         except Exception as error:
             self.error(error)
@@ -340,16 +345,6 @@ class PartiesPage:
             self.turbo.stop()
         # Stale in-flight results are discarded by poll using tracker identity.
         self.tracker = None
-
-    def _party_seed_dir(self, party):
-        """Return the live seed directory, falling back to its party snapshot if merged or migrated."""
-        live_seed = Path(party["mods"]) / party["mod_name"]
-        if live_seed.is_dir():
-            return live_seed
-        snapshot_seed = self.party_library.bundle(party) / "seed"
-        if snapshot_seed.is_dir():
-            return snapshot_seed
-        return live_seed
 
     def activate_party(self, ident):
         try:
@@ -370,24 +365,38 @@ class PartiesPage:
         except Exception as error:
             self.error(error)
 
+    def party_seed_dir(self, party):
+        """The installed seed of a party, else its stored snapshot (its port folder vanished)."""
+        live_seed = Path(party['mods']) / party['mod_name']
+        if live_seed.is_dir():
+            return live_seed
+        snapshot_seed = self.party_library.bundle(party) / 'seed'
+        if snapshot_seed.is_dir():
+            return snapshot_seed
+        return live_seed
+
     def party_opened(self, party):
         self.party_job_paused = False
-        party_mods = party["mods"]
-        if not Path(party_mods).exists() and hasattr(self, "_resolve_stale_mods_path"):
-            resolved = self._resolve_stale_mods_path(party_mods)
+        if not Path(party['mods']).exists():
+            # Its port folder vanished (a Longshot update): follow the new build.
+            resolved = self.resolve_longshot_mods(party['mods'])
             if resolved:
-                party_mods = resolved
-        self.mods.set(party_mods)
-        self.save_path.set("")
+                try:
+                    self.party_library.migrate_mods_directory(resolved, old_mods=party['mods'])
+                    party = self.party_library.get(party['id'])
+                except (OSError, ValueError) as error:
+                    self.error(error)
+        self.mods.set(party['mods'])
+        self.save_path.set('')
         self.auto_save.set(True)
-        self.ap_password.set("")
-        self.ap_address.set(party.get("ap_address") or "archipelago.gg:38281")
-        self.slot.set("party-" + party["id"])
-        self.use_artifact(self._party_seed_dir(party))
+        self.ap_password.set('')
+        self.ap_address.set(party.get('ap_address') or 'archipelago.gg:38281')
+        self.slot.set('party-' + party['id'])
+        self.use_artifact(self.party_seed_dir(party))
         self.start_turbo()
         self.render_parties()
         self.update_home()
-        self.status.set("Active party: " + party["name"] + ". You can start the game.")
+        self.notify('Active party: ' + party['name'] + '. You can start the game.')
 
     def match_party(self, directory):
         self.party_context = None
@@ -433,12 +442,19 @@ class PartiesPage:
             if not self.parties_ready():
                 return
             party = self.party_library.get(ident)
-            if messagebox.askyesno('Delete party', f'Remove “{party["name"]}” from My Games?\n\n'
-                                  'A copy will remain in Parties/.deleted.', parent=self.root):
-                self.party_library.delete(ident)
-                self.render_parties()
         except Exception as error:
             self.error(error)
+            return
+        def delete():
+            try:
+                self.clear_notices()
+                self.party_library.delete(ident)
+                self.render_parties()
+                self.notify(f'“{party["name"]}” removed. A copy remains in Parties/.deleted.')
+            except Exception as error:
+                self.error(error)
+        self.show_notice('warn', f'Remove “{party["name"]}” from My Games?',
+                         'A copy will remain in Parties/.deleted.', [('Remove', delete), ('Cancel', self.clear_notices)])
 
     def party_folder(self, ident):
         """Open the selected party's storage folder in the OS file manager."""
@@ -470,7 +486,7 @@ class PartiesPage:
         self.party_library._name(name)
         real_gen = self._using_real_generator()
         if real_gen:
-            from oot_rando.randomizer.randomizer_services import validate_nup_file
+            from oot_rando.randomizer.mods_folder import validate_nup_file
             validate_nup_file(nup)
         saves = self.party_destination(mods)
         if saves is None:
@@ -505,14 +521,12 @@ class PartiesPage:
                 temporary = Path(temporary)
                 staging_mods = temporary / TITLE
                 if continuing:
-                    from oot_rando.parties import _copy
-                    _copy(self._party_seed_dir(continuing), staging_mods / continuing["mod_name"])
-                installed = generate_isolated(nup, staging_mods, settings, temporary / "archive", progress)
-                party = self.party_library.create(
-                    name, installed, mods, saves, ap_address=address,
-                    continue_active=bool(continuing), tracker=manual,
-                )
-                return self.party_library.activate(party["id"], outgoing_address)
+                    from oot_rando.parties import copy_verified
+                    copy_verified(Path(continuing['mods']) / continuing['mod_name'], staging_mods / continuing['mod_name'])
+                installed = generate_isolated(nup, staging_mods, settings, temporary / 'archive', progress)
+                party = self.party_library.create(name, installed, mods, saves, ap_address=address,
+                                                  continue_active=bool(continuing), tracker=manual)
+            return self.party_library.activate(party['id'], outgoing_address)
         def done(party):
             self.party_generated(party, continued=bool(continuing))
             if continuing:
@@ -522,7 +536,7 @@ class PartiesPage:
     def generate_plain(self, nup, mods, settings):
         "Install the seed straight into the mods folder (My Games off)."
         from oot_rando.gui.randomizer_gui import ARCHIVE
-        from oot_rando.randomizer.randomizer_services import preflight_plain_generation, qol_seed_warning
+        from oot_rando.randomizer.mods_folder import preflight_plain_generation, qol_seed_warning
         real_gen = self._using_real_generator()
         mods = preflight_plain_generation(
             nup, mods, settings, archive=ARCHIVE,
@@ -535,18 +549,18 @@ class PartiesPage:
             directory, installed = result
             previous = self.artifact_manifest
             self.use_artifact(directory)
-            self.show_page('tracker')
-            self.status.set('Seed generated and installed: ' + str(installed))
             warning = qol_seed_warning(Path(installed).parent)
-            messagebox.showinfo('Seed ready', 'Seed installed in:\n' + str(installed)
-                                + '\n\nStart a new game to enable automatic tracking and first collections.'
-                                + ('\n\n' + warning if warning else ''), parent=self.root)
+            open_tracker = ('Open the tracker', lambda: self.show_page('tracker'))
+            if warning:
+                self.show_notice('warn', 'Seed installed in ' + str(installed), warning, [open_tracker])
+            else:
+                self.notify('Seed installed in ' + str(installed) + '. Start a new game with it.', open_tracker)
             self.offer_save_migration(self.artifact_manifest, previous)
         self.run_job(job, done)
 
     def party_generated(self, party, continued=False):
         self.party_opened(party)
-        self.show_page("parties")
-        text = ("The save was carried over. The original party stays available." if continued
-                else "Start a new save in the game.")
-        messagebox.showinfo("Party ready", f"“{party['name']}” is installed." + chr(10) + chr(10) + text, parent=self.root)
+        self.show_page('parties')
+        text = ('The save was carried over. The original party stays available.' if continued
+                else 'Start a new save in the game.')
+        self.notify(f'“{party["name"]}” is installed. ' + text)

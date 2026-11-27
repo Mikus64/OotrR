@@ -11,6 +11,7 @@ PKG = SRC / 'oot_rando'
 
 datas = [
     (str(PKG / 'logic' / 'world'), 'oot_rando/logic/world'),
+    (str(PKG / 'game' / 'label_overrides.json'), 'oot_rando/game'),
     # Title screen badge image (patching/title_badge.py).
     (str(PKG / 'patching' / 'title_badge.rgba.zlib'), 'oot_rando/patching'),
     (str(PKG / 'patching' / 'source_textures'), 'oot_rando/patching/source_textures'),

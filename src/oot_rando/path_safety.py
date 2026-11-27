@@ -24,18 +24,17 @@ WINDOWS_RESERVED_NAMES = frozenset({
 })
 WINDOWS_FORBIDDEN_CHARS = frozenset("<>:|?*" + chr(34) + chr(0))
 
-_WIN_LONG_PATHS_CACHE = None
+_WIN_LONG_PATHS_CACHE = {}   # 'enabled': the registry policy, read once
 
 
 def windows_long_paths_enabled(*, _override=None) -> bool:
     "Return True on POSIX or when Windows LongPathsEnabled registry policy is active."
-    global _WIN_LONG_PATHS_CACHE
     if _override is not None:
         return bool(_override)
     if os.name != "nt":
         return True
-    if _WIN_LONG_PATHS_CACHE is not None:
-        return _WIN_LONG_PATHS_CACHE
+    if 'enabled' in _WIN_LONG_PATHS_CACHE:
+        return _WIN_LONG_PATHS_CACHE['enabled']
     enabled = False
     try:
         import winreg
@@ -46,7 +45,7 @@ def windows_long_paths_enabled(*, _override=None) -> bool:
             enabled = bool(int(val) == 1)
     except Exception:
         enabled = False
-    _WIN_LONG_PATHS_CACHE = enabled
+    _WIN_LONG_PATHS_CACHE['enabled'] = enabled
     return enabled
 
 

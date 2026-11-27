@@ -38,21 +38,19 @@ def resource(*parts):
     return base.joinpath(*parts)
 
 
-def open_in_file_manager(target, env=None):
-    """Open a folder or file in the OS file manager (Windows, Linux, macOS).
+def error_log():
+    """Last unexpected error with its traceback, for bug reports (``data/last-error.log``)."""
+    return data_dir() / 'last-error.log'
 
-    On Linux, strips AppImage / PyInstaller / embedded-Qt environment overrides
-    when ``env`` is not explicitly supplied so ``xdg-open`` launches cleanly.
-    """
-    import os
-    import subprocess
-    target_str = str(target)
-    if sys.platform == "win32":
-        os.startfile(target_str)
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", target_str], env=env)
-    else:
-        if env is None:
-            from oot_rando.native_dialogs import _clean_native_env
-            env = _clean_native_env()
-        subprocess.Popen(["xdg-open", target_str], env=env)
+
+def write_error_log(trace):
+    """Record ``trace`` (``traceback.format_exc()``) in :func:`error_log`; never raises."""
+    try:
+        from datetime import datetime
+        from oot_rando import __version__
+        path = error_log()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().isoformat(timespec='seconds')
+        path.write_text(f'{stamp} - version {__version__}\n\n{trace}', encoding='utf-8')
+    except Exception:
+        pass

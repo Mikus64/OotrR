@@ -25,13 +25,6 @@ def _make_port(root: Path) -> Path:
 
 
 def _make_fake_seed(seed_dir: Path, seed_label: str = "testseed") -> str:
-    import hashlib
-    from oot_rando.randomizer.randomizer_core import (
-        ADAPTER_VERSION,
-        GENERATOR_VERSION,
-        Settings,
-        settings_identity,
-    )
     settings = Settings(seed=seed_label)
     seed_id = settings_identity(settings)
     seed_dir.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,5 @@
+import _src_path  # noqa: F401
 import os
-import tempfile
 import unittest
 from unittest import mock
 
@@ -24,7 +24,7 @@ class NativeDialogsTests(unittest.TestCase):
             [("Mod Archives", ["*.zip", "*.7z", "*.rar"]), ("ZIP", ["*.zip"])],
         )
 
-    def test_clean_native_env_strips_appimage_paths(self):
+    def testclean_native_env_strips_appimage_paths(self):
         fake_env = {
             "APPDIR": "/tmp/.mount_OoTRan123456",
             "LD_LIBRARY_PATH": os.pathsep.join(["/tmp/.mount_OoTRan123456/usr/lib", "/usr/lib"]),
@@ -35,7 +35,7 @@ class NativeDialogsTests(unittest.TestCase):
             "QT_ENABLE_HIGHDPI_SCALING": "0",
         }
         with mock.patch.dict(os.environ, fake_env, clear=True):
-            cleaned = native_dialogs._clean_native_env()
+            cleaned = native_dialogs.clean_native_env()
             self.assertEqual(cleaned["LD_LIBRARY_PATH"], "/usr/lib")
             self.assertEqual(cleaned["XDG_DATA_DIRS"], "/usr/share")
             self.assertEqual(cleaned["PATH"], os.pathsep.join(["/usr/bin", "/bin"]))
@@ -75,14 +75,12 @@ class NativeDialogsTests(unittest.TestCase):
 
 class FileManagerHelperTests(unittest.TestCase):
     def test_open_in_file_manager_linux_uses_clean_env(self):
-        from oot_rando import paths
-
         with (
-            mock.patch.object(paths.sys, "platform", "linux"),
-            mock.patch.object(native_dialogs, "_clean_native_env", return_value={"PATH": "/usr/bin"}) as clean_mock,
+            mock.patch.object(native_dialogs.sys, "platform", "linux"),
+            mock.patch.object(native_dialogs, "clean_native_env", return_value={"PATH": "/usr/bin"}) as clean_mock,
             mock.patch("subprocess.Popen") as popen_mock,
         ):
-            paths.open_in_file_manager("/tmp/example")
+            native_dialogs.open_in_file_manager("/tmp/example")
             clean_mock.assert_called_once()
             popen_mock.assert_called_once_with(["xdg-open", "/tmp/example"], env={"PATH": "/usr/bin"})
 

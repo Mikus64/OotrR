@@ -25,7 +25,7 @@ def _is_bundled_path(entry: str, appdir: str, meipass: str) -> bool:
     return any(tok in norm for tok in ("PySide6", "_MEI", "/.mount_"))
 
 
-def _clean_native_env() -> dict[str, str]:
+def clean_native_env() -> dict[str, str]:
     """Strip AppImage, PyInstaller, and embedded-Qt overrides before spawning host tools.
 
     Embedded Qt-in-Tk forces ``QT_QPA_PLATFORM=xcb`` (Linux) and
@@ -92,7 +92,7 @@ def _linux_backends() -> List[Tuple[str, str]]:
     else:
         order = ("zenity", "kdialog", "qarma", "matedialog")
 
-    clean_path = _clean_native_env().get("PATH")
+    clean_path = clean_native_env().get("PATH")
     found: List[Tuple[str, str]] = []
     for tool in order:
         exe = shutil.which(tool, path=clean_path)
@@ -174,7 +174,7 @@ def _run_picker_cmd(cmd: List[str]) -> Optional[str]:
             capture_output=True,
             text=True,
             check=False,
-            env=_clean_native_env(),
+            env=clean_native_env(),
         )
     except OSError:
         return None
@@ -398,3 +398,20 @@ def asksaveasfilename(
         filetypes=filetypes,
         tk_parent=parent,
     )
+
+
+def open_in_file_manager(target, env=None):
+    """Open a folder or file in the OS file manager (Windows, Linux, macOS).
+
+    On Linux, strips AppImage / PyInstaller / embedded-Qt environment overrides
+    when ``env`` is not explicitly supplied so ``xdg-open`` launches cleanly.
+    """
+    target_str = str(target)
+    if sys.platform == "win32":
+        os.startfile(target_str)
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", target_str], env=env)
+    else:
+        if env is None:
+            env = clean_native_env()
+        subprocess.Popen(["xdg-open", target_str], env=env)

@@ -1,5 +1,7 @@
+import _src_path  # noqa: F401
 """Tests for OoT file-select party save cards, stale port path guardrails, and Tk after cleanup."""
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
