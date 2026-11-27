@@ -274,7 +274,8 @@ def gerudo_fortress_fast(read_flow, gamedata_raw, challenges_raw, read_module=No
     the fortress at peace) once it passes 3; ``…_Helped_02`` counts the carpenters
     left. A new game starts with three helped and one left, so the first rescue,
     whichever cell, ends the fortress. Completion releases the other carpenters
-    and opens all cell locks so their jars remain reachable."""
+    and opens all cell locks so their jars remain reachable; their thieves
+    count as defeated so that each key (a check) lies in its cell."""
     from oot_rando.patching import gerudo_fortress as g
     values = {CARPENTERS_HELPED: 3, CARPENTERS_LEFT: 1}
     flow, freed = g.free_remaining_carpenters(read_flow(g.SPIRIT_FLOW))

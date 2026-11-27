@@ -132,7 +132,8 @@ OPTION_TIPS = {
                      'To be confirmed in game.',
     'gerudo_fortress': 'Four carpenters: free the four carpenters to get the Gerudo Membership Card, as in the '
                        'vanilla game. One carpenter: the first one freed, in any cell, ends the fortress and '
-                       'gives the rescue reward, frees the remaining carpenters and opens all cells. '
+                       'gives the rescue reward, frees the remaining carpenters and opens all cells (the keys of '
+                       'the thieves not yet defeated lie in their cells). '
                        'To be confirmed in game.',
     'open_gerudo_valley_bridge': 'The broken bridge of Gerudo Valley is repaired from the start: the adult '
                                  'crosses it on foot without Epona or the Longshot. The carpenters stay in their '

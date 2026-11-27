@@ -41,9 +41,18 @@ class Fortress(unittest.TestCase):
             self.assertEqual(event.name, 'Event146')
             self.assertTrue(all(flags.get(flag) for flag in report['freed']['freed']))
         self.assertNotIn(g.CARD, report['freed']['freed'])
+        freed = report['freed']['freed']
         # The cell's carpenter is deleted by the native rescue flag, not by the release flags.
-        for i in range(13, 17):
-            self.assertIn(f'GerudoFortress_Saved_Npc_Hylia_{i:03}_Adult', report['freed']['freed'])
+        for carpenter in g.CARPENTERS:
+            self.assertIn(f'GerudoFortress_Saved_{carpenter}', freed)
+            # His thief's key stays obtainable: defeated, it lies in the cell.
+            self.assertIn(f'GerudoFortress_DestroyGerudoThief_{carpenter}', freed)
+        self.assertIn(g.CELLS_RELEASED, freed)
+        # WarpPointXX creates the leader at that cell: only the native one (the last rescue).
+        self.assertFalse(any('WarpPoint' in flag for flag in freed))
+        known = {int(e['Hash']) for e in byml_codec.load(data)['root']['Data']['Bool']}
+        from oot_rando.patching.soul_adapter import murmur3
+        self.assertEqual([f for f in freed if murmur3(f) not in known], [])
         with self.assertRaises(ValueError):
             g.free_remaining_carpenters(files[g.SPIRIT_FLOW])
 
@@ -58,8 +67,9 @@ class Fortress(unittest.TestCase):
             guard = entry.main_event.v
             self.assertEqual(guard.data.actor_query.v.v, 'EventQueryIsGameDataBool')
             self.assertEqual(event_params_of(guard), {'GameDataName': g.CELLS_RELEASED, 'Index': -1})
-            self.assertEqual(set(guard.data.cases), {0})  # flag set: no case, the flow ends
-            self.assertEqual(guard.data.cases[0].v.name, g.UNLOCK_ENTRIES[entry.name])
+            # Bool switches: case 0 = true. Released: no case, the flow ends; else the native unlock.
+            self.assertEqual(set(guard.data.cases), {1})
+            self.assertEqual(guard.data.cases[1].v.name, g.UNLOCK_ENTRIES[entry.name])
         self.assertEqual(len(report['entries']), 4)
         with self.assertRaises(ValueError):
             g.skip_completed_unlocks(raw)
@@ -73,20 +83,25 @@ class Fortress(unittest.TestCase):
         original = ainb.AINB.from_binary(source).as_dict()['Nodes']
         self.assertEqual(unflagged_links(nodes), [])
         self.assertEqual(raw, g.open_completed_cells(source))
-        self.assertEqual(nodes[10]['Parameters']['Inputs']['String'][0]['Default Value'], g.CELLS_RELEASED)
+        self.assertEqual(len(nodes), len(original) + 1)
+        released = nodes[g.RELEASED]
+        self.assertEqual(released['Name'], 'HoldGameDataGetBoolSimple')
+        self.assertEqual(released['Parameters']['Inputs']['String'][0]['Default Value'], g.CELLS_RELEASED)
         self.assertNotEqual(g.CELLS_RELEASED, g.RESCUED)  # Requiem must not open unrescued cells.
-        for target, old_source, old_output in ((0, 3, 9), (3, 5, 1)):
-            link = next(p for p in nodes[target]['Parameters']['Inputs']['Bool'] if p['Name'] == 'OpenKey')
-            gate = nodes[link['Node Index']]
-            self.assertEqual((gate['Name'], link['Output Index']), ('OperateOR', 1))
-            self.assertEqual([(s['Node Index'], s['Output Index']) for s in
-                              gate['Parameters']['Inputs']['Bool'][0]['Sources']],
-                             [(old_source, old_output), (10, 0)])
-            for rescued in (False, True):
-                for native_key_signal in (False, True):
-                    signals = {old_source: native_key_signal, 10: rescued}
-                    actual = any(signals[s['Node Index']] for s in gate['Parameters']['Inputs']['Bool'][0]['Sources'])
-                    self.assertEqual(actual, rescued or native_key_signal)
+        # The released flag deletes the chain lock and the shutter, linked like the
+        # navmesh cut's own Logic_Delete (node 4); the key path is untouched.
+        navmesh = next(p for p in original[4]['Parameters']['Inputs']['Bool'] if p['Name'] == 'Logic_Delete')
+        self.assertEqual(navmesh['Flags'], [])
+        for target in g.DELETED_ON_RELEASE:
+            before, after = original[target], nodes[target]
+            self.assertIn(after['Name'], ('ActorLogicDoorChainLock', 'ActorLogicSwitchShutter'))
+            inputs = {p['Name']: p for p in after['Parameters']['Inputs']['Bool']}
+            self.assertEqual(inputs['Logic_Delete'], dict(navmesh, **{'Node Index': g.RELEASED}))
+            self.assertEqual(after['Queries'], before['Queries'] + [g.RELEASED])
+            self.assertEqual(after['Plugs']['Generic'],
+                             before['Plugs']['Generic'] + [{'Node Index': g.RELEASED, 'Name': 'Logic_Delete'}])
+            self.assertEqual({k: v for k, v in inputs.items() if k != 'Logic_Delete'},
+                             {p['Name']: p for p in before['Parameters']['Inputs']['Bool'] if p['Name'] != 'Logic_Delete'})
         for index in (1, 2, 4, 5, 6, 7, 8, 9):
             self.assertEqual(nodes[index], original[index])
         with self.assertRaises(ValueError):
